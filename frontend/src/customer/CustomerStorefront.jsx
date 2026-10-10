@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -31,329 +31,380 @@ import {
   UserPlus
 } from 'lucide-react';
 import './CustomerStorefront.css';
+import { api, logout, saveUser, getStoredUser } from '../api/client';
 
 export default function CustomerStorefront({ onTriggerToast }) {
   const navigate = useNavigate();
 
-  // Current Authenticated User state
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('auth_user');
-      return saved ? JSON.parse(saved) : { fullName: 'Priya Sharma', membershipTier: 'GOLD', email: 'priya.sharma@example.com' };
-    } catch {
-      return { fullName: 'Priya Sharma', membershipTier: 'GOLD', email: 'priya.sharma@example.com' };
-    }
-  });
+  const say = useCallback((message) => {
+    if (onTriggerToast) onTriggerToast(message);
+  }, [onTriggerToast]);
+
+  // Signed-in customer (the route guard guarantees there is one)
+  const [currentUser, setCurrentUser] = useState(() => getStoredUser() ?? {});
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const firstName = (currentUser.fullName || 'there').split(' ')[0];
+  const tierName = currentUser.membershipTier || 'STANDARD';
 
   useEffect(() => {
-    const handleAuthChange = () => {
-      try {
-        const saved = localStorage.getItem('auth_user');
-        if (saved) setCurrentUser(JSON.parse(saved));
-      } catch {}
-    };
+    const handleAuthChange = () => setCurrentUser(getStoredUser() ?? {});
     window.addEventListener('auth-state-changed', handleAuthChange);
     return () => window.removeEventListener('auth-state-changed', handleAuthChange);
   }, []);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState(null); // { slug, name }
   const [activeNav, setActiveNav] = useState('home');
-  const [activeStore, setActiveStore] = useState('Indiranagar Flagship');
   const [showStoreModal, setShowStoreModal] = useState(false);
 
-  // Cart Drawer State (Default preloaded with 3 items matching reference screenshot: 3 items • ₹2,450)
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [appliedVoucher, setAppliedVoucher] = useState('NOVAFRESH');
-  const [cartItems, setCartItems] = useState([
-    {
-      id: 101,
-      name: 'Farm-Fresh Alphonso Mangoes',
-      subtitle: 'GI-tagged Ratnagiri origin (1 Dozen)',
-      price: 499,
-      originalPrice: 650,
-      quantity: 1,
-      image: 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=300&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 102,
-      name: 'AeroFit Wireless Earbuds ANC',
-      subtitle: 'Active Noise Cancellation, 36hr battery',
-      price: 2499,
-      originalPrice: 3999,
-      quantity: 1,
-      image: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=300&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 103,
-      name: 'Organic Cold-Pressed Coconut Oil',
-      subtitle: '100% pure edible grade (500ml)',
-      price: 340,
-      originalPrice: 420,
-      quantity: 1,
-      image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=300&auto=format&fit=crop&q=80'
+  // Stores - GET /stores. The chosen one is the customer's preferredStoreId.
+  const [stores, setStores] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/stores', { type: 'STORE', size: 100 })
+      .then((list) => {
+        if (cancelled) return;
+        setStores(
+          list.map((st) => ({
+            id: st.id,
+            name: st.name.replace('NovaMart ', ''),
+            address: [st.address.line, st.address.city, st.address.state, st.address.postalCode].filter(Boolean).join(', '),
+            stock: `${(st.unitsInStock ?? 0).toLocaleString('en-IN')} units`,
+            hours: st.hours ? `${st.hours.opensAt.slice(0, 5)} – ${st.hours.closesAt.slice(0, 5)}` : null,
+          }))
+        );
+      })
+      .catch((err) => say(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [say]);
+
+  const activeStoreId = currentUser.preferredStoreId ?? stores[0]?.id ?? null;
+  const activeStoreInfo = stores.find((st) => st.id === activeStoreId) ?? null;
+  const activeStore = activeStoreInfo?.name ?? 'Choose a store';
+
+  // Switching store saves it on the customer's profile - PATCH /auth/me
+  const handleSwitchStore = async (store) => {
+    setShowStoreModal(false);
+    try {
+      const user = await api.patch('/auth/me', { preferredStoreId: store.id });
+      saveUser(user);
+      say(`Switched store to ${store.name}`);
+    } catch (err) {
+      say(err.message);
     }
-  ]);
+  };
+
+  // Cart - lives on the backend (GET /cart), so it survives reloads and devices
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [cart, setCart] = useState(null);
+  const reloadCart = useCallback(() => api.get('/cart').then(setCart).catch(() => setCart(null)), []);
+  useEffect(() => {
+    reloadCart();
+  }, [reloadCart, activeStoreId]);
+
+  const cartItems = (cart?.items ?? []).map((item) => ({
+    id: item.productId,
+    name: item.name,
+    subtitle:
+      item.availability?.status === 'OUT_OF_STOCK'
+        ? 'Out of stock at your store'
+        : item.availability?.status === 'LOW_STOCK'
+          ? `${item.brandName} • only ${item.availability.quantityAvailable} left`
+          : item.brandName,
+    price: item.unitPrice,
+    originalPrice: item.mrp ?? item.unitPrice,
+    quantity: item.quantity,
+    image: item.image,
+  }));
+
+  // Checkout options
+  const [fulfillment, setFulfillment] = useState('IN_STORE_PICKUP');
+  const [deliverySpeed, setDeliverySpeed] = useState('STANDARD');
+  const [address, setAddress] = useState({ line: '', city: '', postalCode: '' });
+  const [placingOrder, setPlacingOrder] = useState(false);
+  // One key per checkout attempt, so a double click cannot place two orders.
+  const checkoutKey = useRef(null);
+
+  // Orders - GET /orders
+  const [orders, setOrders] = useState([]);
+  const reloadOrders = useCallback(
+    () => api.get('/orders', { size: 20 }).then(setOrders).catch((err) => say(err.message)),
+    [say]
+  );
+  useEffect(() => {
+    if (activeNav === 'orders') reloadOrders();
+  }, [activeNav, reloadOrders]);
 
   // AI Dialog / Policy Copilot Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiChatInput, setAiChatInput] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
   const [aiMessages, setAiMessages] = useState([
     {
       sender: 'bot',
-      text: 'Namaste Priya! I am Nova AI, your Indiranagar Flagship shopping copilot. Ask me about store stock, instant delivery windows, allergen labels, or return policies!'
+      text: `Namaste ${firstName}! I am Nova AI. Ask me for product recommendations ("laptop for Java development under 1 lakh") or about returns, warranty and delivery policies.`
     }
   ]);
 
-  // Stores available in dropdown
-  const stores = [
-    { id: 1, name: 'Indiranagar Flagship', address: '100 Feet Rd, HAL 2nd Stage, Bengaluru 560038', stock: '98.4%' },
-    { id: 2, name: 'Koramangala Hypermarket', address: '80 Feet Rd, 4th Block, Bengaluru 560034', stock: '96.2%' },
-    { id: 3, name: 'Whitefield Tech Zone', address: 'ITPB Main Rd, Whitefield, Bengaluru 560066', stock: '94.8%' },
-    { id: 4, name: 'HSR Layout Hub', address: '27th Main Rd, Sector 1, HSR, Bengaluru 560102', stock: '97.5%' }
+  // Featured Categories - GET /categories (pictures are decorative, picked by position)
+  const CATEGORY_IMAGES = [
+    'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=400&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1583847268964-b28dc8f51f92?w=400&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=400&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1610832958506-aa56368176cf?w=400&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1599490659213-e2b9527bd087?w=400&auto=format&fit=crop&q=80',
+    'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400&auto=format&fit=crop&q=80',
   ];
+  const BADGE_CLASSES = ['red', 'emerald', 'amber', 'cyan', 'blue', 'green'];
+  const [categories, setCategories] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/categories', { tree: true })
+      .then((tree) => {
+        if (cancelled) return;
+        // Top-level departments first, then their sub-categories, six cards in all.
+        const flat = [...tree, ...tree.flatMap((parent) => parent.children)];
+        setCategories(
+          flat.slice(0, 6).map((cat, index) => {
+            const count = cat.children
+              ? cat.children.reduce((n, child) => n + child.productCount, cat.productCount)
+              : cat.productCount;
+            return {
+              id: cat.id,
+              slug: cat.slug,
+              name: cat.name,
+              count: `${count} products`,
+              badge: cat.children ? `${cat.children.length} sections` : 'Shop now',
+              badgeClass: BADGE_CLASSES[index % BADGE_CLASSES.length],
+              image: CATEGORY_IMAGES[index % CATEGORY_IMAGES.length],
+            };
+          })
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  // Featured Categories
-  const categories = [
-    {
-      id: 'cat-1',
-      name: 'Fruits & Veggies',
-      count: '420+ Farm Fresh items',
-      badge: 'From ₹40',
-      badgeClass: 'cyan',
-      image: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?w=400&auto=format&fit=crop&q=80'
+  // Product cards - GET /products, with stock at the chosen store
+  const shorten = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+  const toCard = useCallback(
+    (p) => {
+      const stock = p.storeStock ?? p.stock;
+      const qty = p.storeStock?.quantityAvailable;
+      const where = activeStoreInfo?.name ?? 'your store';
+      const ratings = p.ratingCount >= 1000 ? `${(p.ratingCount / 1000).toFixed(1)}k` : p.ratingCount;
+      return {
+        id: p.id,
+        name: shorten(p.name, 30),
+        fullName: p.name,
+        desc: p.description ?? '',
+        price: p.price,
+        originalPrice: p.mrp ?? p.price,
+        saveAmount: Math.max(0, (p.mrp ?? p.price) - p.price),
+        rating: `${p.rating.toFixed(1)} (${ratings})`,
+        badge: p.discountPercent > 0 ? `${p.discountPercent}% OFF` : p.brand.name.toUpperCase(),
+        badgeType: p.discountPercent > 0 ? 'discount' : 'organic',
+        stockStatus:
+          stock.availability === 'OUT_OF_STOCK'
+            ? `Out of stock at ${where}`
+            : stock.availability === 'LOW_STOCK'
+              ? `Only ${qty} left at ${where}`
+              : qty != null
+                ? `In Stock (${qty} units at ${where})`
+                : 'In Stock',
+        stockType: stock.availability === 'IN_STOCK' ? 'in-stock' : 'urgent',
+        outOfStock: stock.availability === 'OUT_OF_STOCK',
+        stock: stock.availability === 'OUT_OF_STOCK' ? `Out of stock at ${where}` : `In Stock at ${where}`,
+        image: p.images?.[0],
+      };
     },
-    {
-      id: 'cat-2',
-      name: 'Dairy, Bakery & Eggs',
-      count: '210+ Breakfast Items',
-      badge: 'Daily Fresh',
-      badgeClass: 'green',
-      image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 'cat-3',
-      name: 'Electronics & Tech',
-      count: '850+ Verified Gadgets',
-      badge: 'Up to 40% Off',
-      badgeClass: 'red',
-      image: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=400&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 'cat-4',
-      name: 'Personal Care & Wellness',
-      count: '640+ Derm-Approved',
-      badge: 'Trending',
-      badgeClass: 'amber',
-      image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=400&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 'cat-5',
-      name: 'Snacks & Beverages',
-      count: '520+ Gourmet Treats',
-      badge: 'Buy 2 Get 1',
-      badgeClass: 'blue',
-      image: 'https://images.unsplash.com/photo-1599490659213-e2b9527bd087?w=400&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 'cat-6',
-      name: 'Kitchen & Home',
-      count: '380+ Sustainable Picks',
-      badge: 'Eco Choice',
-      badgeClass: 'emerald',
-      image: 'https://images.unsplash.com/photo-1583847268964-b28dc8f51f92?w=400&auto=format&fit=crop&q=80'
-    }
-  ];
+    [activeStoreInfo]
+  );
 
-  // Trending Products & Bestsellers
-  const trendingProducts = [
-    {
-      id: 101,
-      name: 'Farm-Fresh Alphonso...',
-      fullName: 'Farm-Fresh Alphonso Mangoes (1 Dozen)',
-      desc: 'Naturally ripened without carbide, GI-tagged Ratnagiri origin',
-      price: 499,
-      originalPrice: 650,
-      saveAmount: 151,
-      rating: '4.8 (1.2k)',
-      badge: '23% OFF',
-      badgeType: 'discount',
-      stockStatus: 'In Stock (42 units at Indiranagar)',
-      stockType: 'in-stock',
-      image: 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 102,
-      name: 'AeroFit Wireless Earbuds ANC',
-      fullName: 'AeroFit Wireless Earbuds ANC',
-      desc: 'Active Noise Cancellation, 36hr battery & IPX5 splashproof',
-      price: 2499,
-      originalPrice: 3999,
-      saveAmount: 1500,
-      rating: '4.7 (890)',
-      badge: '37% OFF',
-      badgeType: 'discount',
-      stockStatus: 'In Stock (18 units)',
-      stockType: 'in-stock',
-      image: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=500&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 103,
-      name: 'Organic Cold-Pressed...',
-      fullName: 'Organic Cold-Pressed Virgin Coconut Oil',
-      desc: '100% pure edible grade, wood-pressed from Kerala coconuts',
-      price: 340,
-      originalPrice: 420,
-      saveAmount: 80,
-      rating: '4.9 (450)',
-      badge: 'ORGANIC',
-      badgeType: 'organic',
-      stockStatus: 'In Stock (65 units)',
-      stockType: 'in-stock',
-      image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=500&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 104,
-      name: 'Artisan Sourdough Loaf...',
-      fullName: 'Artisan Sourdough Loaf (400g)',
-      desc: 'Wild fermented 36 hours, unbleached flour, no preservatives',
-      price: 140,
-      originalPrice: 160,
-      saveAmount: 20,
-      rating: '4.6 (310)',
-      badge: 'BAKED TODAY',
-      badgeType: 'baked',
-      stockStatus: 'Only 4 left in store!',
-      stockType: 'urgent',
-      image: 'https://images.unsplash.com/photo-1586444248902-2f64eddc13df?w=500&auto=format&fit=crop&q=80'
-    }
-  ];
+  const [trendingProducts, setTrendingProducts] = useState([]);
+  const [productTotal, setProductTotal] = useState(0);
+  const [productsLoading, setProductsLoading] = useState(true);
+  useEffect(() => {
+    const controller = new AbortController();
+    setProductsLoading(true);
+    api
+      .getPage(
+        '/products',
+        {
+          q: appliedSearch,
+          categorySlug: activeCategory?.slug,
+          storeId: activeStoreId,
+          sort: appliedSearch ? 'relevance' : 'rating_desc',
+          size: appliedSearch || activeCategory ? 12 : 8,
+        },
+        { signal: controller.signal }
+      )
+      .then(({ items, meta }) => {
+        setTrendingProducts(items.map(toCard));
+        setProductTotal(meta.totalItems);
+        setProductsLoading(false);
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setProductsLoading(false);
+        say(err.message);
+      });
+    return () => controller.abort();
+  }, [appliedSearch, activeCategory, activeStoreId, toCard, say]);
 
-  // Recommended For You
-  const recommendedProducts = [
-    {
-      id: 201,
-      reason: 'Based on your healthy s...',
-      name: 'NutriPure Roasted Californ...',
-      fullName: 'NutriPure Roasted California Almonds (250g)',
-      rating: '4.9',
-      stock: 'In Stock at Indiranagar',
-      price: 480,
-      image: 'https://images.unsplash.com/photo-1508061252966-f72fb4029dd0?w=400&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 202,
-      reason: 'Trending in Bengaluru E...',
-      name: 'Smart Digital Air Fryer 4.5L',
-      fullName: 'Smart Digital Air Fryer 4.5L Touchscreen',
-      rating: '4.7',
-      stock: 'In Stock at Indiranagar',
-      price: 3799,
-      originalPrice: 5499,
-      image: 'https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?w=400&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 203,
-      reason: 'Frequently bought with ...',
-      name: 'HydraGlow Vitamin C Fac...',
-      fullName: 'HydraGlow Vitamin C Face Serum (30ml)',
-      rating: '4.8',
-      stock: 'In Stock at Indiranagar',
-      price: 599,
-      image: 'https://images.unsplash.com/photo-1608248597359-59756b106200?w=400&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 204,
-      reason: 'Reorder reminder (Purch...',
-      name: 'EcoClean Plant-Based...',
-      fullName: 'EcoClean Plant-Based Detergent Liquid (2L)',
-      rating: '4.6',
-      stock: 'In Stock at Indiranagar',
-      price: 399,
-      image: 'https://images.unsplash.com/photo-1610557892470-55d9e80c0bce?w=400&auto=format&fit=crop&q=80'
-    }
-  ];
+  // Recommended For You - the customer's saved preferences applied to the catalogue
+  const [recommendedProducts, setRecommendedProducts] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const prefs = currentUser.preferences ?? {};
+    const hasPrefs = prefs.categories?.length || prefs.brands?.length;
+    const base = { storeId: activeStoreId, inStockOnly: true, sort: 'rating_desc', size: 4 };
+    const personal = hasPrefs
+      ? api.get('/products', { ...base, categoryId: prefs.categories, brandId: prefs.brands, maxPrice: prefs.budgetMax || undefined })
+      : Promise.resolve([]);
+    personal
+      .then((items) => (items.length ? { items, reason: 'Matches your preferences' } : api.get('/products', { ...base, page: 2 }).then((top) => ({ items: top, reason: 'Top rated near you' }))))
+      .then(({ items, reason }) => {
+        if (cancelled) return;
+        setRecommendedProducts(
+          items.map((p) => {
+            const card = toCard(p);
+            return { ...card, reason, rating: p.rating.toFixed(1), originalPrice: p.mrp > p.price ? p.mrp : undefined };
+          })
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser.preferences, activeStoreId, toCard]);
 
-  // Cart operations
-  const totalItemCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
-  const subtotal = cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  // Gold Member Discount & Coupon applied
-  const memberDiscount = subtotal > 1498 ? 350 : 0;
-  const couponDiscount = appliedVoucher === 'NOVAFRESH' ? Math.round(subtotal * 0.15) : 0;
-  const totalAmount = Math.max(0, subtotal - memberDiscount - couponDiscount);
+  const runSearch = (text) => {
+    setActiveCategory(null);
+    setAppliedSearch(text.trim());
+    setActiveNav('home');
+  };
 
-  const handleAddToCart = (item) => {
-    setCartItems(prev => {
-      const existing = prev.find(i => i.id === item.id);
-      if (existing) {
-        return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
-      }
-      return [...prev, {
-        id: item.id,
-        name: item.fullName || item.name,
-        subtitle: item.desc || item.stock || 'Fresh in store',
-        price: item.price,
-        originalPrice: item.originalPrice || item.price,
-        quantity: 1,
-        image: item.image
-      }];
-    });
+  // Cart totals come from the backend, including the membership-tier delivery perks
+  const summary = cart?.summary;
+  const totalItemCount = summary?.itemCount ?? 0;
+  const subtotal = summary?.subtotal ?? 0;
+  const isDelivery = fulfillment === 'HOME_DELIVERY';
+  const deliveryOption = isDelivery ? summary?.delivery?.[deliverySpeed === 'EXPRESS' ? 'express' : 'standard'] : null;
+  const deliveryFee = deliveryOption?.fee ?? 0;
+  const totalAmount = subtotal + deliveryFee;
 
-    if (onTriggerToast) {
-      onTriggerToast(`Added "${item.name}" to cart (₹${item.price.toLocaleString('en-IN')})`);
+  // POST /cart/items
+  const handleAddToCart = async (item) => {
+    try {
+      setCart(await api.post('/cart/items', { productId: item.id, quantity: 1 }));
+      say(`Added "${item.fullName || item.name}" to cart (₹${item.price.toLocaleString('en-IN')})`);
+    } catch (err) {
+      say(err.message);
     }
   };
 
-  const updateQuantity = (id, delta) => {
-    setCartItems(prev => {
-      return prev.map(item => {
-        if (item.id === id) {
-          const newQty = item.quantity + delta;
-          return newQty > 0 ? { ...item, quantity: newQty } : null;
-        }
-        return item;
-      }).filter(Boolean);
-    });
+  // PATCH /cart/items/:id, or DELETE when the quantity reaches zero
+  const updateQuantity = async (id, delta) => {
+    const line = cartItems.find((i) => i.id === id);
+    if (!line) return;
+    const quantity = line.quantity + delta;
+    try {
+      setCart(quantity > 0 ? await api.patch(`/cart/items/${id}`, { quantity }) : await api.delete(`/cart/items/${id}`));
+    } catch (err) {
+      say(err.details?.[0]?.message ?? err.message);
+    }
+  };
+
+  // POST /orders - checks out the cart for pickup or delivery
+  const handleCheckout = async () => {
+    if (isDelivery && (!address.line.trim() || !address.city.trim() || !address.postalCode.trim())) {
+      say('Please enter the delivery address, city and PIN code.');
+      return;
+    }
+    checkoutKey.current ??= crypto.randomUUID();
+    setPlacingOrder(true);
+    try {
+      const order = await api.post(
+        '/orders',
+        isDelivery
+          ? { fulfillment, deliverySpeed, shippingAddress: { line: address.line.trim(), city: address.city.trim(), postalCode: address.postalCode.trim() } }
+          : { fulfillment, storeId: activeStoreId },
+        { headers: { 'Idempotency-Key': checkoutKey.current } }
+      );
+      checkoutKey.current = null;
+      say(`Order ${order.orderNumber} placed • ₹${order.total.toLocaleString('en-IN')} • ${isDelivery ? 'home delivery' : `pickup at ${order.store?.name ?? 'your store'}`}`);
+      setIsCartOpen(false);
+      await reloadCart();
+      setActiveNav('orders');
+    } catch (err) {
+      // A failed attempt may be retried with changes, so it gets a fresh key.
+      checkoutKey.current = null;
+      say(err.details?.length ? err.details.map((d) => d.message).join(' • ') : err.message);
+    } finally {
+      setPlacingOrder(false);
+    }
+  };
+
+  // POST /orders/:id/cancel
+  const handleCancelOrder = async (order) => {
+    try {
+      await api.post(`/orders/${order.id}/cancel`);
+      say(`Order ${order.orderNumber} cancelled`);
+      reloadOrders();
+    } catch (err) {
+      say(err.message);
+    }
   };
 
   const handleQuickPromptClick = (prompt) => {
     setSearchQuery(prompt);
-    if (onTriggerToast) {
-      onTriggerToast(`Filtered catalog for: "${prompt}"`);
-    }
+    runSearch(prompt);
   };
 
   const handleCopyVoucher = () => {
     navigator.clipboard?.writeText('NOVAFRESH');
-    setAppliedVoucher('NOVAFRESH');
-    if (onTriggerToast) {
-      onTriggerToast('Voucher code NOVAFRESH copied & applied to your cart!');
+    say('Voucher code NOVAFRESH copied.');
+  };
+
+  // POST /assistant/chat - product recommendations or policy answers with sources
+  const handleAiSearchSubmit = async (e) => {
+    if (e) e.preventDefault();
+    const userText = aiChatInput.trim();
+    if (!userText || aiBusy) return;
+
+    setAiMessages((prev) => [...prev, { sender: 'user', text: userText }]);
+    setAiChatInput('');
+    setAiBusy(true);
+    try {
+      const reply = await api.post('/assistant/chat', { message: userText, storeId: activeStoreId ?? undefined });
+      if (reply.type === 'policy') {
+        setAiMessages((prev) => [...prev, { sender: 'bot', text: reply.answer, sources: reply.sources }]);
+      } else {
+        const lines = [reply.interpretedRequirement];
+        if (reply.clarifyingQuestion) lines.push(reply.clarifyingQuestion);
+        setAiMessages((prev) => [...prev, { sender: 'bot', text: lines.join('\n\n'), products: reply.recommendations }]);
+      }
+    } catch (err) {
+      setAiMessages((prev) => [...prev, { sender: 'bot', text: err.status === 503 ? `${err.message}. Product questions still work.` : err.message }]);
+    } finally {
+      setAiBusy(false);
     }
   };
 
-  const handleAiSearchSubmit = (e) => {
-    if (e) e.preventDefault();
-    if (!aiChatInput.trim()) return;
-
-    const userText = aiChatInput;
-    setAiMessages(prev => [...prev, { sender: 'user', text: userText }]);
-    setAiChatInput('');
-
-    setTimeout(() => {
-      let reply = `Checking live stock at ${activeStore}... We have high availability with express 11-minute dispatch!`;
-      const lower = userText.toLowerCase();
-      if (lower.includes('shoe') || lower.includes('running')) {
-        reply = 'Found 6 models of ergonomic running shoes under ₹3,000 at Indiranagar Flagship, including Nike Revolution 6 (₹2,799) and Puma Flyer Flex (₹2,499). Available in Aisle 4B!';
-      } else if (lower.includes('protein') || lower.includes('snack')) {
-        reply = 'Top high-protein snacks today: NutriPure California Almonds (₹480), Yoga Bar 20g Whey Protein Bars (₹120), and Organic Roasted Makhana (₹145). Direct harvest, 100% clean!';
-      } else if (lower.includes('coffee') || lower.includes('arabica')) {
-        reply = 'Blue Tokai Estate Arabica & Sleepy Owl Cold Brew beans are fresh roasted in Karnataka within the last 48 hours. Eligible for instant pickup Bay #4!';
-      } else if (lower.includes('return') || lower.includes('policy')) {
-        reply = 'NovaMart provides a No-Questions 7-Day Return Policy on all groceries and packaged essentials, with instant refunds to Nova Wallet or your original UPI/card!';
-      }
-      setAiMessages(prev => [...prev, { sender: 'bot', text: reply }]);
-    }, 550);
+  const handleSignOut = async () => {
+    setShowUserMenu(false);
+    await logout();
+    say('Signed out of NovaMart.');
+    navigate('/login');
   };
 
   return (
@@ -391,7 +442,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
             </div>
             <div className="store-address-row">
               <MapPin size={11} className="address-pin" />
-              <span>100 Feet Rd, HAL 2nd Stage, Indiranagar, Bengaluru, Karnataka 560038</span>
+              <span>{activeStoreInfo?.address ?? 'Pick the store you shop at'}</span>
             </div>
           </div>
         </div>
@@ -406,17 +457,13 @@ export default function CustomerStorefront({ onTriggerToast }) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (onTriggerToast) onTriggerToast(`Searching for "${searchQuery}" across 15,000+ items`);
-              }
+              if (e.key === 'Enter') runSearch(searchQuery);
             }}
           />
           <button
             type="button"
             className="search-submit-btn"
-            onClick={() => {
-              if (onTriggerToast) onTriggerToast(`Searching for "${searchQuery || 'fresh items'}"`);
-            }}
+            onClick={() => runSearch(searchQuery)}
           >
             Search
           </button>
@@ -448,9 +495,9 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <User size={16} />
               </div>
               <div className="user-info-text">
-                <span className="user-name">{currentUser.fullName || 'Priya Sharma'}</span>
+                <span className="user-name">{currentUser.fullName}</span>
                 <span className="user-tier">
-                  {currentUser.membershipTier ? `${currentUser.membershipTier.charAt(0) + currentUser.membershipTier.slice(1).toLowerCase()} Member` : 'Gold Member'} <ChevronDown size={10} />
+                  {`${tierName.charAt(0) + tierName.slice(1).toLowerCase()} Member`} <ChevronDown size={10} />
                 </span>
               </div>
             </div>
@@ -458,10 +505,10 @@ export default function CustomerStorefront({ onTriggerToast }) {
             {showUserMenu && (
               <div className="user-profile-menu-dropdown">
                 <div className="user-menu-header">
-                  <div className="user-menu-name">{currentUser.fullName || 'Priya Sharma'}</div>
-                  <div className="user-menu-email">{currentUser.email || 'customer@novamart.com'}</div>
+                  <div className="user-menu-name">{currentUser.fullName}</div>
+                  <div className="user-menu-email">{currentUser.email}</div>
                   <div className="user-menu-badge">
-                    {currentUser.membershipTier || 'GOLD'} PRIVILEGE ACTIVE
+                    {tierName} MEMBER
                   </div>
                 </div>
                 <div className="user-menu-divider" />
@@ -491,13 +538,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <button
                   type="button"
                   className="user-menu-item danger"
-                  onClick={() => {
-                    localStorage.removeItem('auth_user');
-                    localStorage.removeItem('auth_token');
-                    setCurrentUser({ fullName: 'Guest Customer', membershipTier: 'STANDARD', email: 'guest@novamart.com' });
-                    setShowUserMenu(false);
-                    if (onTriggerToast) onTriggerToast('Signed out of NovaMart session.');
-                  }}
+                  onClick={handleSignOut}
                 >
                   <LogOut size={15} />
                   <span>Sign Out</span>
@@ -584,7 +625,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
             {/* Operating Hours Card */}
             <div className="store-hours-card">
               <div className="hours-label">Store Operating Hours</div>
-              <div className="hours-value">07:00 AM – 11:00 PM</div>
+              <div className="hours-value">{activeStoreInfo?.hours ?? '10:00 – 22:00'}</div>
               <div className="hours-status">
                 <span className="status-green-dot" />
                 <span>Open Now</span>
@@ -600,8 +641,8 @@ export default function CustomerStorefront({ onTriggerToast }) {
             <div className="ribbon-left">
               <span className="live-indicator-dot" />
               <span>
-                <strong className="ribbon-bold">Store #104</strong> • Indiranagar Flagship Realtime Floor Stock:{' '}
-                <strong>98.4% Available</strong> • Instant Pickup Bay #4 Ready
+                <strong className="ribbon-bold">{activeStoreId ?? 'No store selected'}</strong> • {activeStore} live stock:{' '}
+                <strong>{activeStoreInfo?.stock ?? '—'}</strong> • Pickup or home delivery
               </span>
             </div>
             <div className="ribbon-right">
@@ -614,11 +655,11 @@ export default function CustomerStorefront({ onTriggerToast }) {
           <div className="hero-greeting-section">
             <div className="privilege-tier-pill">
               <Tag size={12} />
-              <span>PRIYA • GOLD PRIVILEGE TIER ACTIVE</span>
+              <span>{firstName.toUpperCase()} • {tierName} MEMBER</span>
             </div>
-            <h1 className="greeting-headline">What are you shopping for today, Priya?</h1>
+            <h1 className="greeting-headline">What are you shopping for today, {firstName}?</h1>
             <p className="greeting-subtext">
-              Explore 15,000+ groceries, fresh essentials & tech with express 30-minute delivery from Indiranagar Flagship.
+              Explore electronics, appliances, fashion and groceries with live stock from {activeStore}.
             </p>
 
             <div className="quick-prompts-row">
@@ -626,30 +667,30 @@ export default function CustomerStorefront({ onTriggerToast }) {
               <button
                 type="button"
                 className="quick-prompt-chip"
-                onClick={() => handleQuickPromptClick('Running shoes under ₹3,000')}
+                onClick={() => handleQuickPromptClick('running shoes')}
               >
-                🏃 Running shoes under ₹3,000
+                🏃 Running shoes
               </button>
               <button
                 type="button"
                 className="quick-prompt-chip"
-                onClick={() => handleQuickPromptClick('Healthy high-protein snacks')}
+                onClick={() => handleQuickPromptClick('almonds')}
               >
-                🥗 Healthy high-protein snacks
+                🥗 Healthy snacks
               </button>
               <button
                 type="button"
                 className="quick-prompt-chip"
-                onClick={() => handleQuickPromptClick('Arabica coffee beans')}
+                onClick={() => handleQuickPromptClick('coffee')}
               >
-                ☕ Arabica coffee beans
+                ☕ Coffee
               </button>
               <button
                 type="button"
                 className="quick-prompt-chip"
-                onClick={() => handleQuickPromptClick('Gentle sunscreen SPF 50+')}
+                onClick={() => handleQuickPromptClick('noise cancelling headphones')}
               >
-                🧴 Gentle sunscreen SPF 50+
+                🎧 Noise cancelling headphones
               </button>
             </div>
           </div>
@@ -709,20 +750,67 @@ export default function CustomerStorefront({ onTriggerToast }) {
             </div>
           </div>
 
-          {/* 4. Featured Categories (PRIYA'S PANTRY & LIFESTYLE) */}
+          {/* My Orders - GET /orders, with cancel while the order is still open */}
+          {activeNav === 'orders' && (
+            <section className="categories-section">
+              <div className="section-header-row">
+                <div>
+                  <div className="section-pre-title">YOUR ACCOUNT</div>
+                  <h3 className="section-main-title">My Orders</h3>
+                </div>
+                <div className="view-all-link" onClick={() => setActiveNav('home')}>
+                  <span>Back to shopping</span>
+                  <ArrowRight size={14} />
+                </div>
+              </div>
+              {orders.length === 0 ? (
+                <p className="section-subtitle">You have not placed any orders yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {orders.map((order) => (
+                    <div key={order.id} style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#0F172A' }}>
+                          {order.orderNumber} • {order.status.replaceAll('_', ' ')}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
+                          {order.items.map((i) => `${i.quantity} × ${i.name}`).join(', ')}
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '2px' }}>
+                          {order.fulfillment === 'HOME_DELIVERY' ? `Home delivery (${order.deliverySpeed?.toLowerCase()})` : `Pickup at ${order.store?.name ?? 'store'}`} • {new Date(order.placedAt).toLocaleString('en-IN')} • {order.paymentStatus.replaceAll('_', ' ').toLowerCase()}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <strong style={{ color: '#1D4ED8' }}>₹{order.total.toLocaleString('en-IN')}</strong>
+                        {order.cancellableByCustomer && (
+                          <button type="button" className="rec-btn-add" onClick={() => handleCancelOrder(order)}>
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* 4. Featured Categories - GET /categories */}
           <section className="categories-section">
             <div className="section-header-row">
               <div>
-                <div className="section-pre-title">PRIYA'S PANTRY & LIFESTYLE</div>
+                <div className="section-pre-title">{firstName.toUpperCase()}'S DEPARTMENTS</div>
                 <h3 className="section-main-title">Featured Categories</h3>
               </div>
               <div
                 className="view-all-link"
                 onClick={() => {
-                  if (onTriggerToast) onTriggerToast('Browsing all 24 retail departments...');
+                  setActiveCategory(null);
+                  setAppliedSearch('');
+                  setSearchQuery('');
                 }}
               >
-                <span>View all 24 departments</span>
+                <span>View all products</span>
                 <ArrowRight size={14} />
               </div>
             </div>
@@ -734,7 +822,9 @@ export default function CustomerStorefront({ onTriggerToast }) {
                     key={cat.id}
                     className="category-card"
                     onClick={() => {
-                      if (onTriggerToast) onTriggerToast(`Browsing category: ${cat.name}`);
+                      setAppliedSearch('');
+                      setSearchQuery('');
+                      setActiveCategory({ slug: cat.slug, name: cat.name });
                     }}
                   >
                     <div className="category-image-wrap">
@@ -767,10 +857,16 @@ export default function CustomerStorefront({ onTriggerToast }) {
               <div>
                 <h3 className="section-main-title">
                   <TrendingUp size={20} color="#2563EB" />
-                  <span>Trending Products & Bestsellers</span>
+                  <span>
+                    {appliedSearch ? `Results for “${appliedSearch}”` : activeCategory ? activeCategory.name : 'Trending Products & Bestsellers'}
+                  </span>
                 </h3>
                 <p className="section-subtitle">
-                  Most ordered by Indiranagar residents in the last 48 hours
+                  {productsLoading
+                    ? 'Loading products…'
+                    : appliedSearch || activeCategory
+                      ? `${productTotal} product${productTotal === 1 ? '' : 's'} • stock shown for ${activeStore}`
+                      : `Top rated across the catalogue • stock shown for ${activeStore}`}
                 </p>
               </div>
 
@@ -781,7 +877,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 onClick={() => setIsCartOpen(true)}
               >
                 <ShoppingCart size={16} />
-                <span>Cart (3 Items • ₹2,450)</span>
+                <span>Cart ({totalItemCount} Items • ₹{subtotal.toLocaleString('en-IN')})</span>
               </button>
             </div>
 
@@ -813,8 +909,9 @@ export default function CustomerStorefront({ onTriggerToast }) {
                       type="button"
                       className="btn-add-cart"
                       onClick={() => handleAddToCart(prod)}
+                      disabled={prod.outOfStock}
                     >
-                      <ShoppingCart size={15} /> Add to Cart
+                      <ShoppingCart size={15} /> {prod.outOfStock ? 'Out of Stock' : 'Add to Cart'}
                     </button>
                   </div>
                 </div>
@@ -836,16 +933,14 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   </h3>
                 </div>
                 <p className="section-subtitle">
-                  Neural recommendation model calibrated from your purchase history & Indiranagar micro-trends
+                  Picked from your saved preferences and what is in stock at {activeStore}
                 </p>
               </div>
               <div
                 className="manage-pref-link"
-                onClick={() => {
-                  if (onTriggerToast) onTriggerToast('Opening AI Recommendation Preferences');
-                }}
+                onClick={() => setIsAiModalOpen(true)}
               >
-                <span>Manage Preferences</span>
+                <span>Ask Nova AI</span>
                 <SlidersHorizontal size={13} />
               </div>
             </div>
@@ -998,22 +1093,58 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   <span>Subtotal</span>
                   <span>₹{subtotal.toLocaleString('en-IN')}</span>
                 </div>
-                {memberDiscount > 0 && (
+                {summary?.productSavings > 0 && (
                   <div className="summary-row discount">
-                    <span>Gold Privilege Member Discount</span>
-                    <span>-₹{memberDiscount.toLocaleString('en-IN')}</span>
+                    <span>You save on MRP</span>
+                    <span>₹{summary.productSavings.toLocaleString('en-IN')}</span>
                   </div>
                 )}
-                {couponDiscount > 0 && (
-                  <div className="summary-row discount">
-                    <span>Voucher ({appliedVoucher}) Applied</span>
-                    <span>-₹{couponDiscount.toLocaleString('en-IN')}</span>
+
+                {(cart?.issues ?? []).map((issue) => (
+                  <div key={issue.productId} className="summary-row" style={{ color: '#B45309', fontSize: '12px' }}>
+                    <span>{issue.message}</span>
                   </div>
-                )}
-                <div className="summary-row">
-                  <span>Delivery to HAL 2nd Stage</span>
-                  <span style={{ color: '#059669', fontWeight: '700' }}>FREE (Express 24m)</span>
+                ))}
+
+                {/* How the order is received - pickup or delivery */}
+                <div style={{ display: 'flex', gap: '8px', margin: '8px 0' }}>
+                  {[['IN_STORE_PICKUP', 'Store pickup'], ['HOME_DELIVERY', 'Home delivery']].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setFulfillment(value)}
+                      style={{ flex: 1, padding: '8px', borderRadius: '8px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600, border: fulfillment === value ? '2px solid #2563EB' : '1px solid #CBD5E1', background: fulfillment === value ? '#EFF6FF' : '#FFFFFF', color: '#0F172A' }}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
+
+                {isDelivery ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px' }}>
+                    <input className="search-input-field" style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '8px 10px' }} placeholder="Address line" value={address.line} onChange={(e) => setAddress({ ...address, line: e.target.value })} />
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input className="search-input-field" style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '8px 10px', minWidth: 0 }} placeholder="City" value={address.city} onChange={(e) => setAddress({ ...address, city: e.target.value })} />
+                      <input className="search-input-field" style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '8px 10px', minWidth: 0 }} placeholder="PIN code" value={address.postalCode} onChange={(e) => setAddress({ ...address, postalCode: e.target.value })} />
+                    </div>
+                    <select value={deliverySpeed} onChange={(e) => setDeliverySpeed(e.target.value)} style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '8px 10px', fontSize: '12.5px' }}>
+                      <option value="STANDARD">Standard delivery</option>
+                      <option value="EXPRESS">Express delivery</option>
+                    </select>
+                  </div>
+                ) : null}
+
+                <div className="summary-row">
+                  <span>{isDelivery ? `${deliverySpeed === 'EXPRESS' ? 'Express' : 'Standard'} delivery` : `Pickup at ${activeStore}`}</span>
+                  <span style={{ color: deliveryFee === 0 ? '#059669' : undefined, fontWeight: '700' }}>
+                    {deliveryFee === 0 ? `FREE${deliveryOption?.tierPerk ? ` (${deliveryOption.tierPerk} perk)` : ''}` : `₹${deliveryFee.toLocaleString('en-IN')}`}
+                  </span>
+                </div>
+                {cart?.membership && (
+                  <div className="summary-row" style={{ fontSize: '12px', color: '#64748B' }}>
+                    <span>{cart.membership.tier} member • earns {cart.membership.rewardPointsEarned} reward points</span>
+                  </div>
+                )}
                 <div className="summary-row total">
                   <span>Total Payable</span>
                   <span style={{ color: '#1D4ED8' }}>₹{totalAmount.toLocaleString('en-IN')}</span>
@@ -1022,14 +1153,10 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <button
                   type="button"
                   className="drawer-checkout-btn"
-                  onClick={() => {
-                    if (onTriggerToast) {
-                      onTriggerToast('Order placed! Express delivery assigned to Bay #4 dispatch.');
-                    }
-                    setIsCartOpen(false);
-                  }}
+                  onClick={handleCheckout}
+                  disabled={placingOrder}
                 >
-                  Proceed to Checkout • ₹{totalAmount.toLocaleString('en-IN')}
+                  {placingOrder ? 'Placing order…' : `Place Order • ₹${totalAmount.toLocaleString('en-IN')}`}
                 </button>
               </div>
             )}
@@ -1047,9 +1174,9 @@ export default function CustomerStorefront({ onTriggerToast }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Sparkles size={18} />
                 <div>
-                  <h3 style={{ fontSize: '15px', fontWeight: '800' }}>Nova AI • Indiranagar Shopping Copilot</h3>
+                  <h3 style={{ fontSize: '15px', fontWeight: '800' }}>Nova AI • {activeStore} Shopping Copilot</h3>
                   <div style={{ fontSize: '11px', opacity: 0.9 }}>
-                    Grounding model active on Store #104 Inventory & Retail Policies
+                    Answers come from the live catalogue and the policy knowledge base
                   </div>
                 </div>
               </div>
@@ -1063,9 +1190,30 @@ export default function CustomerStorefront({ onTriggerToast }) {
             </div>
 
             <div className="ai-dialog-chat-flow">
+              {aiBusy && (
+                <div className="chat-bubble-row bot" style={{ order: 1 }}>
+                  <div className="bubble-text">Thinking…</div>
+                </div>
+              )}
               {aiMessages.map((m, idx) => (
                 <div key={idx} className={`chat-bubble-row ${m.sender}`}>
-                  <div className="bubble-text">{m.text}</div>
+                  <div className="bubble-text" style={{ whiteSpace: 'pre-wrap' }}>
+                    {m.text}
+                    {m.products?.map((p) => (
+                      <div key={p.productId} style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(148,163,184,0.4)' }}>
+                        <strong>{p.name}</strong> • ₹{p.price.toLocaleString('en-IN')} • {p.availability.status.replaceAll('_', ' ').toLowerCase()}
+                        <div style={{ fontSize: '12px', opacity: 0.9, margin: '3px 0 6px' }}>{p.reason}</div>
+                        <button type="button" className="rec-btn-add" disabled={p.availability.status === 'OUT_OF_STOCK'} onClick={() => handleAddToCart({ id: p.productId, name: p.name, price: p.price })}>
+                          + Add
+                        </button>
+                      </div>
+                    ))}
+                    {m.sources?.length > 0 && (
+                      <div style={{ marginTop: '8px', fontSize: '11.5px', opacity: 0.85 }}>
+                        Source{m.sources.length > 1 ? 's' : ''}: {m.sources.map((src) => `${src.document} — ${src.section} (v${src.version})`).join('; ')}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1074,7 +1222,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
               <input
                 type="text"
                 className="ai-text-input"
-                placeholder="Ask about organic stock, shoe sizes, 7-day returns, or recipes..."
+                placeholder="Ask for a product, or about returns, warranty, delivery..."
                 value={aiChatInput}
                 onChange={(e) => setAiChatInput(e.target.value)}
                 autoFocus
@@ -1113,25 +1261,21 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   style={{
                     padding: '12px 14px',
                     borderRadius: '10px',
-                    border: activeStore === s.name ? '2px solid #2563EB' : '1px solid #E2E8F0',
-                    background: activeStore === s.name ? '#EFF6FF' : '#FFFFFF',
+                    border: activeStoreId === s.id ? '2px solid #2563EB' : '1px solid #E2E8F0',
+                    background: activeStoreId === s.id ? '#EFF6FF' : '#FFFFFF',
                     cursor: 'pointer',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center'
                   }}
-                  onClick={() => {
-                    setActiveStore(s.name);
-                    setShowStoreModal(false);
-                    if (onTriggerToast) onTriggerToast(`Switched store location to ${s.name}`);
-                  }}
+                  onClick={() => handleSwitchStore(s)}
                 >
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: '700', color: '#0F172A' }}>{s.name}</div>
                     <div style={{ fontSize: '11px', color: '#64748B' }}>{s.address}</div>
                   </div>
                   <div style={{ fontSize: '11.5px', fontWeight: '700', color: '#059669', textAlign: 'right' }}>
-                    {s.stock} Stock
+                    {s.stock}
                   </div>
                 </div>
               ))}

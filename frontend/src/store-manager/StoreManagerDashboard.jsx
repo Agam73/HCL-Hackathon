@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -39,27 +39,39 @@ import {
   UserPlus
 } from 'lucide-react';
 import './StoreManagerDashboard.css';
+import { api, logout, getStoredUser } from '../api/client';
 
 export default function StoreManagerDashboard({ onTriggerToast }) {
   const navigate = useNavigate();
 
-  // Current Authenticated User state
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('auth_user');
-      return saved ? JSON.parse(saved) : { fullName: 'Alex Morgan', role: 'STORE_MANAGER', email: 'alex.morgan@novamart.com' };
-    } catch {
-      return { fullName: 'Alex Morgan', role: 'STORE_MANAGER', email: 'alex.morgan@novamart.com' };
-    }
-  });
+  const say = useCallback((message) => {
+    if (onTriggerToast) onTriggerToast(message);
+  }, [onTriggerToast]);
+
+  // Signed-in store manager (the route guard guarantees there is one)
+  const [currentUser] = useState(() => getStoredUser() ?? {});
+  const storeId = currentUser.managedStoreId;
+  const firstName = (currentUser.fullName || 'there').split(' ')[0];
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // The manager's store - GET /stores/:storeId
+  const [store, setStore] = useState(null);
+  const storeName = store?.name ?? storeId ?? 'your store';
+  useEffect(() => {
+    if (!storeId) return;
+    api.get(`/stores/${storeId}`).then(setStore).catch((err) => say(err.message));
+  }, [storeId, say]);
 
   // Active navigation states
   const [activeSidebarNav, setActiveSidebarNav] = useState('inventory');
   const [activeViewTab, setActiveViewTab] = useState('inventory');
   const [statusFilter, setStatusFilter] = useState('all');
   const [tableSearchQuery, setTableSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [topSearchQuery, setTopSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [reloadKey, setReloadKey] = useState(0);
+  const refresh = () => setReloadKey((k) => k + 1);
 
   // Modals state
   const [adjustingItem, setAdjustingItem] = useState(null);
@@ -69,256 +81,222 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
 
   // Policy AI Chat state
   const [aiChatInput, setAiChatInput] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
   const [aiMessages, setAiMessages] = useState([
     {
       sender: 'bot',
-      text: 'Hello Alex! I am your Store #104 Operations Copilot. Ask me about store return guidelines, safety protocols, reorder thresholds, or shelf compliance.'
+      text: `Hello ${firstName}! I am your store operations copilot. Ask me about return guidelines, warranty terms, delivery rules or replenishment procedures.`
     }
   ]);
 
-  // Inventory Table Data matching screenshot
-  const [inventoryItems, setInventoryItems] = useState([
-    {
-      id: 1,
-      name: 'AeroFit Wireless Earbuds',
-      department: 'Consumer Tech & Audio',
-      variant: 'Matte Onyx',
-      sku: 'SKU-88421',
-      location: 'Aisle E-04',
-      units: 412,
-      levelLabel: 'Healthy',
-      levelType: 'healthy',
-      progressPercent: 85,
-      threshold: 100,
-      status: 'in-stock',
-      statusText: 'In Stock',
-      iconType: 'blue',
-      icon: <Headphones size={18} />,
-      actionType: 'adjust',
-      secondaryAction: 'transfer'
-    },
-    {
-      id: 2,
-      name: 'Fair-Trade Cold Brew 12pk',
-      department: 'Beverage Chillers',
-      variant: 'Nitro Steeped',
-      sku: 'SKU-44189',
-      location: 'Chiller C-02',
-      units: 14,
-      levelLabel: 'Low',
-      levelType: 'low',
-      progressPercent: 28,
-      threshold: 30,
-      status: 'low-stock',
-      statusText: 'Low Stock',
-      iconType: 'blue',
-      icon: <Coffee size={18} />,
-      actionType: 'adjust',
-      secondaryAction: 'truck'
-    },
-    {
-      id: 3,
-      name: 'Nordic Mesh Desk Chair',
-      department: 'Ergonomic Furniture',
-      variant: 'Space Grey',
-      sku: 'SKU-77312',
-      location: 'Floor Display 03',
-      units: 0,
-      levelLabel: 'Depleted',
-      levelType: 'depleted',
-      progressPercent: 0,
-      threshold: 15,
-      status: 'out-of-stock',
-      statusText: 'Out of Stock',
-      iconType: 'red',
-      icon: <Armchair size={18} />,
-      actionType: 'expedite',
-      secondaryAction: 'edit'
-    },
-    {
-      id: 4,
-      name: 'UltraGlow 4K Monitor 32"',
-      department: 'Displays & Vision',
-      variant: '144Hz IPS',
-      sku: 'SKU-99042',
-      location: 'Aisle E-01',
-      units: 88,
-      levelLabel: 'Optimal',
-      levelType: 'optimal',
-      progressPercent: 72,
-      threshold: 25,
-      status: 'in-stock',
-      statusText: 'In Stock',
-      iconType: 'blue',
-      icon: <Tv size={18} />,
-      actionType: 'adjust',
-      secondaryAction: 'more'
-    },
-    {
-      id: 5,
-      name: 'Sourdough Artisan Loaf',
-      department: 'In-Store Bakery',
-      variant: 'Daily Baked',
-      sku: 'SKU-31004',
-      location: 'Bakery B-01',
-      units: 165,
-      levelLabel: 'Fresh',
-      levelType: 'fresh',
-      progressPercent: 88,
-      threshold: 40,
-      status: 'in-stock',
-      statusText: 'In Stock',
-      iconType: 'blue',
-      icon: <Croissant size={18} />,
-      actionType: 'adjust',
-      secondaryAction: 'more'
-    },
-    {
-      id: 6,
-      name: 'EcoClean Plant Detergent',
-      department: 'Household Essentials',
-      variant: '64oz Eco-Pouch',
-      sku: 'SKU-65290',
-      location: 'Aisle H-05',
-      units: 18,
-      levelLabel: 'Low',
-      levelType: 'low',
-      progressPercent: 32,
-      threshold: 50,
-      status: 'low-stock',
-      statusText: 'Low Stock',
-      iconType: 'green',
-      icon: <SprayCan size={18} />,
-      actionType: 'adjust',
-      secondaryAction: 'more'
-    }
-  ]);
-
-  // Filter items
-  const filteredItems = inventoryItems.filter((item) => {
-    // Status filter
-    if (statusFilter === 'in-stock' && item.status !== 'in-stock') return false;
-    if (statusFilter === 'low-stock' && item.status !== 'low-stock') return false;
-    if (statusFilter === 'out-of-stock' && item.status !== 'out-of-stock') return false;
-
-    // Search query
-    const q = tableSearchQuery.toLowerCase();
-    if (q) {
-      const matchName = item.name.toLowerCase().includes(q);
-      const matchSku = item.sku.toLowerCase().includes(q);
-      const matchDept = item.department.toLowerCase().includes(q);
-      const matchLoc = item.location.toLowerCase().includes(q);
-      if (!matchName && !matchSku && !matchDept && !matchLoc) return false;
-    }
-    return true;
+  // Inventory table - GET /stores/:storeId/inventory (filtered and paged by the backend)
+  const PAGE_SIZE = 10;
+  const STATUS_PARAM = { 'in-stock': 'IN_STOCK', 'low-stock': 'LOW_STOCK', 'out-of-stock': 'OUT_OF_STOCK' };
+  const LEVELS = {
+    IN_STOCK: { levelLabel: 'Healthy', levelType: 'healthy', status: 'in-stock', statusText: 'In Stock', iconType: 'blue' },
+    LOW_STOCK: { levelLabel: 'Low', levelType: 'low', status: 'low-stock', statusText: 'Low Stock', iconType: 'green' },
+    OUT_OF_STOCK: { levelLabel: 'Depleted', levelType: 'depleted', status: 'out-of-stock', statusText: 'Out of Stock', iconType: 'red' },
+  };
+  const toRow = (r) => ({
+    id: r.product.id,
+    name: r.product.name,
+    department: r.product.categoryName,
+    variant: r.product.brandName,
+    sku: r.product.id,
+    location: r.storeId,
+    units: r.quantityAvailable,
+    progressPercent: Math.min(100, Math.round((r.quantityAvailable / Math.max(1, r.reorderLevel * 4)) * 100)),
+    threshold: r.reorderLevel,
+    icon: <Boxes size={18} />,
+    // Out-of-stock rows offer a one-click restock; the rest open the count dialog.
+    actionType: r.availability === 'OUT_OF_STOCK' ? 'expedite' : 'adjust',
+    secondaryAction: 'more',
+    ...LEVELS[r.availability],
   });
 
-  // Expedite restock
-  const handleExpedite = (item) => {
-    setInventoryItems(prev => prev.map(i => {
-      if (i.id === item.id) {
-        return {
-          ...i,
-          units: 15,
-          levelLabel: 'Optimal',
-          levelType: 'optimal',
-          progressPercent: 65,
-          status: 'in-stock',
-          statusText: 'In Stock',
-          actionType: 'adjust'
-        };
-      }
-      return i;
-    }));
-    if (onTriggerToast) {
-      onTriggerToast(`Expedited emergency restock order dispatched for ${item.name} (SKU: ${item.sku}) from Dallas Hub!`);
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryTotal, setInventoryTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [kpis, setKpis] = useState({ skus: 0, low: 0, out: 0, openOrders: 0 });
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(tableSearchQuery.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [tableSearchQuery]);
+  useEffect(() => setPage(1), [debouncedSearch, statusFilter]);
+
+  useEffect(() => {
+    if (!storeId) return undefined;
+    const controller = new AbortController();
+    api
+      .getPage(
+        `/stores/${storeId}/inventory`,
+        { q: debouncedSearch, status: STATUS_PARAM[statusFilter], page, size: PAGE_SIZE },
+        { signal: controller.signal }
+      )
+      .then(({ items, meta }) => {
+        setInventoryItems(items.map(toRow));
+        setInventoryTotal(meta.totalItems);
+        setTotalPages(Math.max(1, meta.totalPages));
+      })
+      .catch((err) => err.name !== 'AbortError' && say(err.message));
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, debouncedSearch, statusFilter, page, reloadKey]);
+
+  // KPI tiles - counts straight from the backend
+  useEffect(() => {
+    if (!storeId) return;
+    const count = (path, params) => api.getPage(path, { ...params, size: 1 }).then((r) => r.meta.totalItems);
+    Promise.all([
+      count(`/stores/${storeId}/inventory`),
+      count(`/stores/${storeId}/inventory`, { status: 'LOW_STOCK' }),
+      count(`/stores/${storeId}/inventory`, { status: 'OUT_OF_STOCK' }),
+      count(`/stores/${storeId}/orders`, { status: 'CONFIRMED' }),
+    ])
+      .then(([skus, low, out, openOrders]) => setKpis({ skus, low, out, openOrders }))
+      .catch(() => {});
+  }, [storeId, reloadKey]);
+
+  // The backend already applied the search and status filter.
+  const filteredItems = inventoryItems;
+
+  // Order queue - GET /stores/:storeId/orders
+  const [orders, setOrders] = useState([]);
+  useEffect(() => {
+    if (!storeId || activeViewTab !== 'sales') return;
+    api.get(`/stores/${storeId}/orders`, { size: 20 }).then(setOrders).catch((err) => say(err.message));
+  }, [storeId, activeViewTab, reloadKey, say]);
+
+  // PATCH /orders/:id/status - only the steps the backend lists in nextStatuses
+  const handleOrderStatus = async (order, status) => {
+    try {
+      await api.patch(`/orders/${order.id}/status`, { status });
+      say(`Order ${order.orderNumber} is now ${status.replaceAll('_', ' ').toLowerCase()}`);
+      refresh();
+    } catch (err) {
+      say(err.message);
     }
   };
 
+  // PATCH /stores/:storeId/inventory/:productId
+  const changeStock = async (item, body, done) => {
+    try {
+      const result = await api.patch(`/stores/${storeId}/inventory/${item.id}`, body);
+      say(done(result));
+      refresh();
+      return true;
+    } catch (err) {
+      say(err.details?.[0]?.message ?? err.message);
+      return false;
+    }
+  };
+
+  // Expedite restock: brings a depleted product back to twice its reorder level
+  const handleExpedite = (item) =>
+    changeStock(
+      item,
+      { delta: Math.max(10, item.threshold * 2), reason: 'Expedited restock from the manager dashboard' },
+      (r) => `Restocked ${item.name}: now ${r.quantityAvailable} units.`
+    );
+
   // Adjust stock count modal save
-  const handleSaveStockAdjustment = () => {
+  const handleSaveStockAdjustment = async () => {
     if (!adjustingItem) return;
     const newQty = parseInt(adjustQuantity, 10);
     if (isNaN(newQty) || newQty < 0) {
-      if (onTriggerToast) onTriggerToast('Please enter a valid stock quantity.');
+      say('Please enter a valid stock quantity.');
       return;
     }
+    const saved = await changeStock(
+      adjustingItem,
+      { quantityAvailable: newQty, reason: 'Verified count from the manager dashboard' },
+      () => `Adjusted ${adjustingItem.name} to ${newQty} units.`
+    );
+    if (saved) setAdjustingItem(null);
+  };
 
-    setInventoryItems(prev => prev.map(i => {
-      if (i.id === adjustingItem.id) {
-        let newStatus = 'in-stock';
-        let newStatusText = 'In Stock';
-        let newLabel = 'Optimal';
-        let newType = 'optimal';
-
-        if (newQty === 0) {
-          newStatus = 'out-of-stock';
-          newStatusText = 'Out of Stock';
-          newLabel = 'Depleted';
-          newType = 'depleted';
-        } else if (newQty <= i.threshold) {
-          newStatus = 'low-stock';
-          newStatusText = 'Low Stock';
-          newLabel = 'Low';
-          newType = 'low';
-        }
-
-        return {
-          ...i,
-          units: newQty,
-          status: newStatus,
-          statusText: newStatusText,
-          levelLabel: newLabel,
-          levelType: newType,
-          progressPercent: Math.min(100, Math.round((newQty / (i.threshold * 2)) * 100))
-        };
-      }
-      return i;
-    }));
-
-    if (onTriggerToast) {
-      onTriggerToast(`Adjusted floor inventory for ${adjustingItem.name} to ${newQty} units.`);
+  // Stock history for one product - GET /stores/:storeId/inventory/movements
+  const handleShowHistory = async (item) => {
+    try {
+      const rows = await api.get(`/stores/${storeId}/inventory/movements`, { productId: item.id, size: 3 });
+      say(
+        rows.length
+          ? `${item.sku} history: ` + rows.map((m) => `${m.type} ${m.quantityDelta > 0 ? '+' : ''}${m.quantityDelta} → ${m.quantityAfter}`).join(' • ')
+          : `No stock movements recorded yet for ${item.sku}.`
+      );
+    } catch (err) {
+      say(err.message);
     }
-    setAdjustingItem(null);
+  };
+
+  // Quick Restock: every out-of-stock product at this store goes back to twice its reorder level
+  const [restocking, setRestocking] = useState(false);
+  const handleQuickRestock = async () => {
+    setRestocking(true);
+    try {
+      const depleted = await api.get(`/stores/${storeId}/inventory`, { status: 'OUT_OF_STOCK', size: 100 });
+      let done = 0;
+      for (const row of depleted) {
+        await api.patch(`/stores/${storeId}/inventory/${row.product.id}`, {
+          delta: Math.max(10, row.reorderLevel * 2),
+          reason: 'Quick restock from the manager dashboard',
+        });
+        done += 1;
+      }
+      say(done ? `Restocked ${done} out-of-stock product${done === 1 ? '' : 's'}.` : 'Nothing is out of stock.');
+      setShowQuickRestockModal(false);
+      refresh();
+    } catch (err) {
+      say(err.message);
+      refresh();
+    } finally {
+      setRestocking(false);
+    }
   };
 
   const handleExport = () => {
-    const csvContent = "data:text/csv;charset=utf-8," 
+    const csvContent = "data:text/csv;charset=utf-8,"
       + ["Product,SKU,Location,Stock,Threshold,Status"].join(",") + "\n"
       + inventoryItems.map(e => `"${e.name}",${e.sku},"${e.location}",${e.units},${e.threshold},"${e.statusText}"`).join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "NovaMart_Store104_Inventory.csv");
+    link.setAttribute("download", `NovaMart_${storeId}_Inventory.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    say(`Inventory page exported to NovaMart_${storeId}_Inventory.csv`);
+  };
 
-    if (onTriggerToast) {
-      onTriggerToast("Inventory report exported to NovaMart_Store104_Inventory.csv");
+  // POST /assistant/chat - answered from the policy knowledge base with sources
+  const handleAiMessageSubmit = async (e) => {
+    e.preventDefault();
+    const userText = aiChatInput.trim();
+    if (!userText || aiBusy) return;
+
+    setAiMessages(prev => [...prev, { sender: 'user', text: userText }]);
+    setAiChatInput('');
+    setAiBusy(true);
+    try {
+      const reply = await api.post('/assistant/chat', { message: userText, storeId });
+      const text =
+        reply.type === 'policy'
+          ? reply.answer + (reply.sources?.length ? `\n\nSource: ${reply.sources.map((src) => `${src.document} — ${src.section}`).join('; ')}` : '')
+          : [reply.interpretedRequirement, ...reply.recommendations.map((r) => `• ${r.name} (₹${r.price.toLocaleString('en-IN')}, ${r.availability.status.replaceAll('_', ' ').toLowerCase()})`), reply.clarifyingQuestion].filter(Boolean).join('\n');
+      setAiMessages(prev => [...prev, { sender: 'bot', text }]);
+    } catch (err) {
+      setAiMessages(prev => [...prev, { sender: 'bot', text: err.message }]);
+    } finally {
+      setAiBusy(false);
     }
   };
 
-  const handleAiMessageSubmit = (e) => {
-    e.preventDefault();
-    if (!aiChatInput.trim()) return;
-
-    const userText = aiChatInput;
-    setAiMessages(prev => [...prev, { sender: 'user', text: userText }]);
-    setAiChatInput('');
-
-    setTimeout(() => {
-      let reply = "Based on Austin Flagship Store #104 standard operating procedures, shelf audits run at 06:00 AM and 02:00 PM daily.";
-      const lower = userText.toLowerCase();
-      if (lower.includes('return') || lower.includes('policy')) {
-        reply = "Store #104 accepts 7-day grocery returns with automatic refund reconciliation. Defective electronics have an instant 14-day replacement window at Customer Service Bay #2.";
-      } else if (lower.includes('cold brew') || lower.includes('chiller')) {
-        reply = "Fair-Trade Cold Brew 12pk is flagged Low (14 units). Automatic restock PO-8921 is scheduled for 4:00 PM cold-chain cross-dock delivery.";
-      } else if (lower.includes('restock') || lower.includes('reorder')) {
-        reply = "Automated reorder triggers when stock falls below Reorder Threshold. Emergency expedited restocks route through the Dallas Regional Hub via express transit.";
-      }
-      setAiMessages(prev => [...prev, { sender: 'bot', text: reply }]);
-    }, 550);
+  const handleSignOut = async () => {
+    setShowUserMenu(false);
+    await logout();
+    say('Signed out of Store Manager portal.');
+    navigate('/login');
   };
 
   return (
@@ -415,7 +393,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
             </div>
             <div className="topbar-store-pill">
               <MapPin size={12} />
-              <span>Store #104 — Austin Flagship</span>
+              <span>{storeId} — {storeName}</span>
             </div>
           </div>
 
@@ -435,7 +413,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
             <div className="user-profile-wrapper">
               <div className="topbar-user-profile" onClick={() => setShowUserMenu(!showUserMenu)}>
                 <div className="user-text-info">
-                  <div className="user-name-title">{currentUser.fullName || 'Alex Morgan'}</div>
+                  <div className="user-name-title">{currentUser.fullName}</div>
                   <div className="user-role-title">Store Manager</div>
                 </div>
                 <div className="user-avatar-navy">
@@ -477,13 +455,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                   <button
                     type="button"
                     className="user-menu-item danger"
-                    onClick={() => {
-                      localStorage.removeItem('auth_user');
-                      localStorage.removeItem('auth_token');
-                      setShowUserMenu(false);
-                      if (onTriggerToast) onTriggerToast('Signed out of Store Manager portal.');
-                      navigate('/login');
-                    }}
+                    onClick={handleSignOut}
                   >
                     <LogOut size={15} />
                     <span>Sign Out</span>
@@ -502,7 +474,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
               <div className="breadcrumbs-trail">
                 <span>STORE OPERATIONS</span>
                 <span>&gt;</span>
-                <span>AUSTIN FLAGSHIP (#104)</span>
+                <span>{storeName.toUpperCase()} ({storeId})</span>
                 <span>&gt;</span>
                 <span className="active">INVENTORY MANAGEMENT</span>
               </div>
@@ -535,11 +507,11 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                   className={`tab-pill-btn ${activeViewTab === 'sales' ? 'active' : ''}`}
                   onClick={() => {
                     setActiveViewTab('sales');
-                    if (onTriggerToast) onTriggerToast('Viewing Sales tally');
                   }}
                 >
                   <Receipt size={14} />
-                  <span>Sales</span>
+                  <span>Orders</span>
+                  {kpis.openOrders > 0 && <span className="tab-badge-count">{kpis.openOrders}</span>}
                 </button>
                 <button
                   type="button"
@@ -551,7 +523,6 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                 >
                   <HelpCircle size={14} />
                   <span>Queries</span>
-                  <span className="tab-badge-count">4</span>
                 </button>
               </div>
 
@@ -560,7 +531,8 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                   type="button"
                   className="icon-btn-square"
                   onClick={() => {
-                    if (onTriggerToast) onTriggerToast('Refreshing live telemetry floor counts...');
+                    refresh();
+                    say('Inventory refreshed from the database.');
                   }}
                   title="Refresh Inventory"
                 >
@@ -585,9 +557,9 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                 <Building2 size={20} />
               </div>
               <div>
-                <h3 className="banner-heading">Inventory Management — Store #104</h3>
+                <h3 className="banner-heading">Inventory Management — {storeName}</h3>
                 <p className="banner-subheading">
-                  Live warehouse floor tally with automated reorder intelligence
+                  Live stock for {storeId}{store ? ` • ${store.address.city}` : ''} • every change is recorded in the stock ledger
                 </p>
               </div>
             </div>
@@ -623,10 +595,10 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                   <LayoutGrid size={16} />
                 </div>
               </div>
-              <div className="kpi-tile-number">4,820</div>
+              <div className="kpi-tile-number">{kpis.skus.toLocaleString('en-IN')}</div>
               <div className="kpi-tile-footer green">
                 <span>✔</span>
-                <span>98.1% Floor Availability</span>
+                <span>{kpis.skus ? (((kpis.skus - kpis.out) / kpis.skus) * 100).toFixed(1) : '0'}% in stock</span>
               </div>
             </div>
 
@@ -637,10 +609,10 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                   <AlertTriangle size={16} />
                 </div>
               </div>
-              <div className="kpi-tile-number">42</div>
+              <div className="kpi-tile-number">{kpis.low}</div>
               <div className="kpi-tile-footer">
                 <span>!</span>
-                <span>Reorder dispatch ready</span>
+                <span>At or below reorder level</span>
               </div>
             </div>
 
@@ -651,27 +623,78 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                   <ShoppingCart size={16} />
                 </div>
               </div>
-              <div className="kpi-tile-number">9</div>
+              <div className="kpi-tile-number">{kpis.out}</div>
               <div className="kpi-tile-footer">
                 <Truck size={12} />
-                <span>3 In-Transit from Dallas Hub</span>
+                <span>Use Expedite to restock</span>
               </div>
             </div>
 
             <div className="kpi-tile-card">
               <div className="kpi-tile-top">
-                <span className="kpi-tile-label">WEEKLY TURNOVER</span>
+                <span className="kpi-tile-label">OPEN ORDERS</span>
                 <div className="kpi-tile-icon green">
                   <TrendingUp size={16} />
                 </div>
               </div>
-              <div className="kpi-tile-number">4.2x</div>
+              <div className="kpi-tile-number">{kpis.openOrders}</div>
               <div className="kpi-tile-footer green">
                 <span>↗</span>
-                <span>+0.4x vs regional avg</span>
+                <span>Confirmed, waiting to be packed</span>
               </div>
             </div>
           </div>
+
+          {/* Order queue - GET /stores/:storeId/orders, moved along with PATCH /orders/:id/status */}
+          {activeViewTab === 'sales' && (
+            <div className="inventory-table-card" style={{ marginBottom: '16px' }}>
+              <table className="inventory-table">
+                <thead>
+                  <tr>
+                    <th>ORDER</th>
+                    <th>CUSTOMER</th>
+                    <th>ITEMS</th>
+                    <th>FULFILMENT</th>
+                    <th>TOTAL</th>
+                    <th>STATUS</th>
+                    <th>NEXT STEP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.length === 0 && (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: 'center', padding: '20px', color: '#64748B' }}>No orders for this store yet.</td>
+                    </tr>
+                  )}
+                  {orders.map((order) => (
+                    <tr key={order.id}>
+                      <td><span className="sku-mono">{order.orderNumber}</span></td>
+                      <td>{order.customer.name}</td>
+                      <td>{order.items.map((i) => `${i.quantity} × ${i.name}`).join(', ')}</td>
+                      <td>{order.fulfillment === 'HOME_DELIVERY' ? `Delivery (${order.deliverySpeed?.toLowerCase()})` : 'Store pickup'}</td>
+                      <td>₹{order.total.toLocaleString('en-IN')}</td>
+                      <td>{order.status.replaceAll('_', ' ')}</td>
+                      <td>
+                        <div className="row-actions-cell">
+                          {order.nextStatuses.length === 0 && <span style={{ color: '#94A3B8' }}>—</span>}
+                          {order.nextStatuses.map((next) => (
+                            <button
+                              key={next}
+                              type="button"
+                              className={next === 'CANCELLED' ? 'btn-row-expedite' : 'btn-row-adjust'}
+                              onClick={() => handleOrderStatus(order, next)}
+                            >
+                              {next.replaceAll('_', ' ').toLowerCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Filter & Action Bar */}
           <div className="inventory-filter-bar">
@@ -914,10 +937,8 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                           <button
                             type="button"
                             className="btn-row-icon"
-                            onClick={() => {
-                              if (onTriggerToast) onTriggerToast(`Viewing audit history for ${item.sku}.`);
-                            }}
-                            title="More Options"
+                            onClick={() => handleShowHistory(item)}
+                            title="Stock history"
                           >
                             <MoreVertical size={14} />
                           </button>
@@ -931,13 +952,13 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
 
             {/* Table Footer / Pagination */}
             <div className="inventory-table-footer">
-              <span>Showing records 1 to {filteredItems.length} of 4,820 items</span>
+              <span>
+                Showing records {inventoryTotal === 0 ? 0 : (page - 1) * PAGE_SIZE + 1} to {(page - 1) * PAGE_SIZE + filteredItems.length} of {inventoryTotal.toLocaleString('en-IN')} items
+              </span>
               <div className="pagination-cluster">
-                <button type="button" className="pagination-btn">Prev</button>
-                <button type="button" className="pagination-btn active">1</button>
-                <button type="button" className="pagination-btn">2</button>
-                <button type="button" className="pagination-btn">3</button>
-                <button type="button" className="pagination-btn">Next</button>
+                <button type="button" className="pagination-btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
+                <button type="button" className="pagination-btn active">{page} / {totalPages}</button>
+                <button type="button" className="pagination-btn" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</button>
               </div>
             </div>
           </div>
@@ -1035,19 +1056,20 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
             </div>
             <div className="manager-modal-body">
               <div>
-                <label className="modal-field-label">Target Fulfillment Hub</label>
+                <label className="modal-field-label">Store</label>
                 <input
                   type="text"
                   className="modal-field-input"
-                  defaultValue="Dallas Regional Distribution Center #02"
+                  value={`${storeName} (${storeId})`}
+                  readOnly
                   disabled
                 />
               </div>
               <div>
                 <label className="modal-field-label">Emergency Restock Items</label>
                 <div style={{ fontSize: '12.5px', color: '#334155', background: '#F8FAFC', padding: '10px', borderRadius: '8px' }}>
-                  • 42 Low-Stock items identified<br />
-                  • 9 Out-of-Stock items flagged for immediate priority dispatch
+                  • {kpis.low} low-stock products (not changed by this action)<br />
+                  • {kpis.out} out-of-stock products will be restocked to twice their reorder level
                 </div>
               </div>
             </div>
@@ -1062,14 +1084,10 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
               <button
                 type="button"
                 className="modal-submit-btn"
-                onClick={() => {
-                  if (onTriggerToast) {
-                    onTriggerToast('Batch quick-restock order PO-99120 submitted to Dallas Hub!');
-                  }
-                  setShowQuickRestockModal(false);
-                }}
+                onClick={handleQuickRestock}
+                disabled={restocking || kpis.out === 0}
               >
-                Confirm Dispatch
+                {restocking ? 'Restocking…' : 'Confirm Restock'}
               </button>
             </div>
           </div>

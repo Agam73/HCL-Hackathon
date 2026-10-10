@@ -15,17 +15,16 @@ export default function AdminNavbar({
   selectedStore, 
   setSelectedStore, 
   searchQuery, 
-  setSearchQuery
+  setSearchQuery,
+  stores: storeList = []
 }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showStoreDropdown, setShowStoreDropdown] = useState(false);
 
+  // Real stores from the backend (loaded by AdminLayout), plus the "all" option
   const stores = [
     { id: 'all', name: 'All Stores (Global)', code: 'GLOBAL' },
-    { id: 'str-104', name: 'Store #104 (Austin Flagship)', code: 'STR-104' },
-    { id: 'str-208', name: 'Store #208 (Seattle Metro)', code: 'STR-208' },
-    { id: 'str-315', name: 'Store #315 (Denver Metro)', code: 'STR-315' },
-    { id: 'hub', name: 'Global Hub (Central Dist.)', code: 'HUB-01' },
+    ...storeList.map((s) => ({ id: s.id, name: `${s.name}${s.isActive ? '' : ' (closed)'}`, code: s.id })),
   ];
 
   const notifications = [

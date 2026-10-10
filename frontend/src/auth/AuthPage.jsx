@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Lock,
@@ -17,6 +17,8 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import './AuthPage.css';
+import { api, login, register, logout } from '../api/client';
+import { homeFor } from '../api/RequireRole';
 
 export default function AuthPage({ mode = 'login', onTriggerToast }) {
   const navigate = useNavigate();
@@ -47,15 +49,22 @@ export default function AuthPage({ mode = 'login', onTriggerToast }) {
   // Loading indicator
   const [isLoading, setIsLoading] = useState(false);
 
-  // Available stores
-  const storeOptions = [
-    { id: 'ST-BLR-01', name: 'Indiranagar Flagship — Bengaluru' },
-    { id: 'ST-BLR-02', name: 'Koramangala Hypermarket — Bengaluru' },
-    { id: 'ST-BLR-03', name: 'Whitefield Tech Zone — Bengaluru' },
-    { id: 'ST-DEL-01', name: 'Connaught Place Hypermarket — New Delhi' },
-    { id: 'ST-MUM-01', name: 'Bandra West Flagship — Mumbai' },
-    { id: 'ST-AUS-104', name: 'Austin Flagship (Store #104) — Texas' }
-  ];
+  // Stores for the "preferred store" dropdown, loaded from the backend
+  const [storeOptions, setStoreOptions] = useState([{ id: 'ST-BLR-01', name: 'NovaMart Koramangala — Bengaluru' }]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/stores', { type: 'STORE', size: 100 }, { auth: false })
+      .then((stores) => {
+        if (cancelled || stores.length === 0) return;
+        setStoreOptions(stores.map((st) => ({ id: st.id, name: `${st.name} — ${st.address.city}` })));
+        setRegStoreId((current) => (stores.some((st) => st.id === current) ? current : stores[0].id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Membership Tiers
   const tierOptions = [
@@ -65,197 +74,88 @@ export default function AuthPage({ mode = 'login', onTriggerToast }) {
     { id: 'PLATINUM', name: 'Platinum VIP', desc: 'Priority concierge & 15% instant off' }
   ];
 
-  // Helper to persist auth & redirect
-  const completeAuth = (user, token) => {
-    localStorage.setItem('auth_token', token || 'mock-jwt-token-' + Date.now());
-    localStorage.setItem('auth_user', JSON.stringify(user));
-    window.dispatchEvent(new Event('auth-state-changed'));
-
-    if (user.role === 'STORE_MANAGER') {
-      navigate('/storemanager');
-    } else if (user.role === 'ADMIN') {
-      navigate('/admin');
-    } else {
-      navigate('/');
-    }
+  const say = (message) => {
+    if (onTriggerToast) onTriggerToast(message);
   };
+  const firstProblem = (err) => err.details?.[0]?.message ?? err.message;
 
-  // Submit Login
+  // Submit Login - POST /auth/login. A wrong password is an error, never a session.
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     const email = loginEmail.trim().toLowerCase();
-    const password = loginPassword;
-
-    if (!email || !password) {
-      if (onTriggerToast) onTriggerToast('Please enter both email and password.');
+    if (!email || !loginPassword) {
+      say('Please enter both email and password.');
       return;
     }
 
     setIsLoading(true);
-
     try {
-      // 1. Try real backend API
-      const res = await fetch('http://localhost:8080/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (res.ok && data?.data?.token) {
-        setIsLoading(false);
-        if (onTriggerToast) {
-          onTriggerToast(`Welcome back, ${data.data.user.fullName || email}!`);
-        }
-        completeAuth(data.data.user, data.data.token);
-        return;
-      }
-    } catch {
-      // Backend offline, fallback to mock credentials below
+      const user = await login(email, loginPassword);
+      say(`Welcome back, ${user.fullName}!`);
+      navigate(homeFor(user.role));
+    } catch (err) {
+      say(err.status === 401 ? 'Incorrect email or password.' : firstProblem(err));
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
-
-    // 2. Mock Fallback based on email conventions
-    let role = 'CUSTOMER';
-    let name = email.split('@')[0];
-    let tier = 'GOLD';
-
-    if (email.includes('admin')) {
-      role = 'ADMIN';
-      name = 'Aarav Mehta';
-      tier = 'PLATINUM';
-    } else if (email.includes('manager')) {
-      role = 'STORE_MANAGER';
-      name = 'Alex Morgan';
-      tier = 'STANDARD';
-    } else {
-      name = 'Priya Sharma';
-    }
-
-    const mockUser = {
-      id: 'USR-' + Date.now(),
-      email,
-      fullName: name,
-      role,
-      membershipTier: tier,
-      preferredStoreId: 'ST-BLR-01',
-      city: 'Bengaluru',
-      country: 'IN'
-    };
-
-    if (onTriggerToast) {
-      onTriggerToast(`Signed in as ${name} (${role})`);
-    }
-    completeAuth(mockUser);
   };
 
-  // Submit Registration
+  // Submit Registration - POST /auth/register (new accounts start on the Standard tier)
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
 
     if (!regEmail || !regPassword || !regFullName) {
-      if (onTriggerToast) onTriggerToast('Please fill in name, email, and password.');
+      say('Please fill in name, email, and password.');
       return;
     }
-
     if (regPassword.length < 8) {
-      if (onTriggerToast) onTriggerToast('Password must be at least 8 characters long.');
+      say('Password must be at least 8 characters long.');
       return;
     }
 
     setIsLoading(true);
-
-    const payload = {
-      fullName: regFullName.trim(),
-      email: regEmail.trim().toLowerCase(),
-      password: regPassword,
-      phone: regPhone.trim() || undefined,
-      city: regCity.trim() || undefined,
-      country: 'IN',
-      membershipTier: regTier,
-      preferredStoreId: regStoreId,
-    };
-
     try {
-      const res = await fetch('http://localhost:8080/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const user = await register({
+        fullName: regFullName.trim(),
+        email: regEmail.trim().toLowerCase(),
+        password: regPassword,
+        phone: regPhone.trim() || undefined,
+        city: regCity.trim() || undefined,
+        country: 'IN',
+        preferredStoreId: regStoreId,
       });
-      const data = await res.json();
-      if (res.ok && data?.data?.token) {
-        setIsLoading(false);
-        if (onTriggerToast) {
-          onTriggerToast(`Account created for ${data.data.user.fullName}! Welcome to NovaMart.`);
-        }
-        completeAuth(data.data.user, data.data.token);
-        return;
-      } else if (data?.error?.message) {
-        setIsLoading(false);
-        if (onTriggerToast) onTriggerToast(`Registration: ${data.error.message}`);
-        return;
-      }
-    } catch {
-      // Backend offline, fallback to mock account
+      say(`Account created for ${user.fullName}! Welcome to NovaMart.`);
+      navigate(homeFor(user.role));
+    } catch (err) {
+      say(`Registration: ${firstProblem(err)}`);
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
-
-    const newUser = {
-      id: 'USR-' + Date.now(),
-      email: payload.email,
-      fullName: payload.fullName,
-      phone: payload.phone,
-      city: payload.city,
-      role: 'CUSTOMER',
-      membershipTier: payload.membershipTier,
-      preferredStoreId: payload.preferredStoreId
-    };
-
-    if (onTriggerToast) {
-      onTriggerToast(`Account created for ${payload.fullName}! Tier: ${payload.membershipTier}`);
-    }
-    completeAuth(newUser);
   };
 
-  // 1-Click Demo Persona Login
-  const handleQuickPersona = (persona) => {
-    let user;
-    if (persona === 'customer') {
-      user = {
-        id: 'USR-CUST-101',
-        email: 'priya.sharma@example.com',
-        fullName: 'Priya Sharma',
-        role: 'CUSTOMER',
-        membershipTier: 'GOLD',
-        preferredStoreId: 'ST-BLR-01',
-        city: 'Bengaluru'
-      };
-      if (onTriggerToast) onTriggerToast('Logged in as Priya Sharma (Customer • Gold Member)');
-    } else if (persona === 'storemanager') {
-      user = {
-        id: 'USR-MGR-201',
-        email: 'alex.morgan@novamart.com',
-        fullName: 'Alex Morgan',
-        role: 'STORE_MANAGER',
-        managedStoreId: 'ST-AUS-104',
-        membershipTier: 'STANDARD',
-        city: 'Austin'
-      };
-      if (onTriggerToast) onTriggerToast('Logged in as Alex Morgan (Store Manager • Austin Flagship)');
-    } else if (persona === 'admin') {
-      user = {
-        id: 'USR-ADM-001',
-        email: 'admin@novamart.com',
-        fullName: 'Aarav Mehta',
-        role: 'ADMIN',
-        membershipTier: 'PLATINUM',
-        city: 'New Delhi'
-      };
-      if (onTriggerToast) onTriggerToast('Logged in as Aarav Mehta (Central Operations Admin)');
+  // 1-Click demo logins sign in to the seeded demo accounts on the backend.
+  const DEMO_PASSWORD = 'Passw0rd!';
+  const DEMO_ACCOUNTS = {
+    customer: 'meera.iyer@example.com',
+    storemanager: 'manager.blr01@novamart.com',
+  };
+  const handleQuickPersona = async (persona) => {
+    if (persona === 'admin') {
+      // The admin portal has no login: it opens only on an authorised admin PC.
+      await logout();
+      navigate('/admin');
+      return;
     }
-
-    completeAuth(user);
+    setIsLoading(true);
+    try {
+      const user = await login(DEMO_ACCOUNTS[persona], DEMO_PASSWORD);
+      say(`Logged in as ${user.fullName}`);
+      navigate(homeFor(user.role));
+    } catch (err) {
+      say(firstProblem(err));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

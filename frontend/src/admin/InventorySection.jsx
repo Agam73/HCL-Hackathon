@@ -1,195 +1,145 @@
-import React, { useState, useMemo } from 'react';
-import { 
-  Search, 
-  Download, 
-  ChevronDown, 
-  MoreVertical, 
-  Check, 
-  AlertTriangle, 
-  X, 
-  Plus, 
-  Minus,
-  PackageCheck,
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Search,
+  Download,
+  X,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { formatPrice } from '../lib/format';
 
-export default function InventorySection({ onTriggerToast }) {
+const PAGE_SIZE = 10;
+
+const STATUS_VIEW = {
+  IN_STOCK: { text: 'In Stock', badge: 'badge-active', dot: 'status-dot-green', fill: 'fill-green', action: 'Restock', btn: 'btn-restock', qty: 50 },
+  LOW_STOCK: { text: 'Low Stock', badge: 'badge-low-stock', dot: 'status-dot-amber', fill: 'fill-amber', action: 'Reorder', btn: 'btn-reorder', qty: 30 },
+  OUT_OF_STOCK: { text: 'Out of Stock', badge: 'badge-depleted', dot: 'status-dot-red', fill: 'fill-red', action: 'Rush PO', btn: 'btn-rush-po', qty: 25 },
+};
+
+/**
+ * Live inventory for one store, straight from the database.
+ *
+ *   client        the API client to call with (admin portal or signed-in manager)
+ *   stores        [{ id, name, address: { city } }] for the store dropdown
+ *   storeId       the store being shown
+ *   onStoreChange called with a store id; omit to lock the view to `storeId`
+ */
+export default function InventorySection({ client, stores = [], storeId, onStoreChange, onTriggerToast }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [storeFilter, setStoreFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [actionModal, setActionModal] = useState(null); // { item, type }
+  const [categories, setCategories] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [loadState, setLoadState] = useState('loading'); // loading | ready | error
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  const [actionModal, setActionModal] = useState(null); // { item, type, defaultQty }
+  const [saving, setSaving] = useState(false);
 
-  const [products, setProducts] = useState([
-    {
-      id: 1,
-      name: 'Aerofit Wireless Smart Earbuds',
-      sku: 'SKU-88421',
-      storeId: 'STR-104',
-      location: 'Austin Flagship',
-      category: 'Electronics',
-      units: 412,
-      maxLimit: 500,
-      fillPct: 82,
-      price: 79.99,
-      status: 'in-stock',
-      statusText: 'In Stock',
-      actionType: 'restock',
-      actionLabel: 'Restock'
-    },
-    {
-      id: 2,
-      name: 'Organic Fair-Trade Cold Brew (12pk)',
-      sku: 'SKU-44109',
-      storeId: 'STR-104',
-      location: 'Austin Flagship',
-      category: 'Grocery',
-      units: 14,
-      limitText: 'Limit: 30',
-      fillPct: 46,
-      price: 34.50,
-      status: 'low-stock',
-      statusText: 'Low Stock',
-      actionType: 'reorder',
-      actionLabel: 'Reorder'
-    },
-    {
-      id: 3,
-      name: 'Nordic Tactical Mesh Office Chair',
-      sku: 'SKU-92104',
-      storeId: 'STR-208',
-      location: 'Seattle Metro',
-      category: 'Furniture',
-      units: 0,
-      limitText: 'Depleted',
-      fillPct: 0,
-      price: 249.00,
-      status: 'out-of-stock',
-      statusText: 'Out of Stock',
-      actionType: 'rush-po',
-      actionLabel: 'Rush PO'
-    },
-    {
-      id: 4,
-      name: 'UltraGlow 4K Smart Monitor 27"',
-      sku: 'SKU-33882',
-      storeId: 'Global Hub',
-      location: 'Central Distribution',
-      category: 'Electronics',
-      units: 88,
-      fillPct: 45,
-      price: 389.99,
-      status: 'in-stock',
-      statusText: 'In Stock',
-      actionType: 'restock',
-      actionLabel: 'Restock'
-    },
-    {
-      id: 5,
-      name: 'Artisan Sourdough Bakery Loaf',
-      sku: 'SKU-12848',
-      storeId: 'STR-104',
-      location: 'Austin Flagship',
-      category: 'Fresh Bakery',
-      units: 6,
-      limitText: 'Limit: 15',
-      fillPct: 40,
-      price: 6.50,
-      status: 'low-stock',
-      statusText: 'Low Stock',
-      actionType: 'reorder',
-      actionLabel: 'Reorder'
-    },
-    {
-      id: 6,
-      name: 'EcoClean Plant-Based Detergent (2L)',
-      sku: 'SKU-67851',
-      storeId: 'STR-315',
-      location: 'Denver Metro',
-      category: 'Household',
-      units: 215,
-      fillPct: 70,
-      price: 18.99,
-      status: 'in-stock',
-      statusText: 'In Stock',
-      actionType: 'restock',
-      actionLabel: 'Restock'
-    }
-  ]);
+  const store = stores.find((s) => s.id === storeId);
 
-  // Filter products
-  const filteredProducts = useMemo(() => {
-    return products.filter((item) => {
-      const matchSearch =
-        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-      const matchStore =
-        storeFilter === 'All' ||
-        item.storeId.includes(storeFilter) ||
-        item.location.includes(storeFilter);
+  // Any change of filter or store starts again from the first page.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, statusFilter, categoryFilter, storeId]);
 
-      const matchStatus =
-        statusFilter === 'All' ||
-        (statusFilter === 'in-stock' && item.status === 'in-stock') ||
-        (statusFilter === 'low-stock' && item.status === 'low-stock') ||
-        (statusFilter === 'out-of-stock' && item.status === 'out-of-stock');
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .get('/categories')
+      .then((list) => !cancelled && setCategories(list.filter((c) => c.parentId)))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
 
-      const matchCategory =
-        categoryFilter === 'All' || item.category === categoryFilter;
+  useEffect(() => {
+    if (!storeId) return undefined;
+    const controller = new AbortController();
+    setLoadState('loading');
+    client
+      .getPage(
+        `/stores/${storeId}/inventory`,
+        {
+          q: debouncedSearch,
+          status: statusFilter,
+          categoryId: categoryFilter,
+          page: currentPage,
+          size: PAGE_SIZE,
+        },
+        { signal: controller.signal }
+      )
+      .then((page) => {
+        setRows(page.items);
+        setMeta(page.meta);
+        setLoadState('ready');
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setLoadError(err.message);
+        setLoadState('error');
+      });
+    return () => controller.abort();
+  }, [client, storeId, debouncedSearch, statusFilter, categoryFilter, currentPage, reloadKey]);
 
-      return matchSearch && matchStore && matchStatus && matchCategory;
-    });
-  }, [products, searchTerm, storeFilter, statusFilter, categoryFilter]);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
-  // Export CSV handler
+  // Export CSV handler (the rows currently shown)
   const handleExportCSV = () => {
-    const headers = 'SKU,Product Name,Store ID,Location,Category,Stock Units,Price,Status\n';
-    const rows = filteredProducts.map(p => 
-      `"${p.sku}","${p.name}","${p.storeId}","${p.location}","${p.category}",${p.units},${p.price},"${p.statusText}"`
+    const headers = 'Product ID,Product Name,Store ID,Category,Stock Units,Reorder Level,Price (INR),Status\n';
+    const body = rows.map(r =>
+      `"${r.product.id}","${r.product.name.replaceAll('"', '""')}","${r.storeId}","${r.product.categoryName}",${r.quantityAvailable},${r.reorderLevel},${r.product.price},"${STATUS_VIEW[r.availability].text}"`
     ).join('\n');
 
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([headers + body], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `NovaMart_Live_Inventory_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Inventory_${storeId}_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     if (onTriggerToast) {
-      onTriggerToast(`Exported ${filteredProducts.length} SKU records to CSV`);
+      onTriggerToast(`Exported ${rows.length} records to CSV`);
     }
   };
 
-  // Submit Quick Action Modal
-  const handleConfirmAction = (quantity) => {
+  // Submit Quick Action Modal - adds stock in the database
+  const handleConfirmAction = async (quantity) => {
     if (!actionModal) return;
     const { item, type } = actionModal;
-
-    setProducts(prev => prev.map(p => {
-      if (p.id === item.id) {
-        const newUnits = p.units + Number(quantity);
-        return {
-          ...p,
-          units: newUnits,
-          status: 'in-stock',
-          statusText: 'In Stock',
-          fillPct: Math.min(100, Math.max(30, (newUnits / 300) * 100))
-        };
+    setSaving(true);
+    try {
+      const result = await client.patch(`/stores/${item.storeId}/inventory/${item.product.id}`, {
+        delta: Number(quantity),
+        reason: `${type} of ${quantity} units from the inventory screen`,
+      });
+      if (onTriggerToast) {
+        onTriggerToast(`${type} confirmed: ${item.product.name} now has ${result.quantityAvailable} units`);
       }
-      return p;
-    }));
-
-    if (onTriggerToast) {
-      onTriggerToast(`Order confirmed: ${quantity} units for ${item.name} (${type.toUpperCase()})`);
+      setActionModal(null);
+      reload();
+    } catch (err) {
+      if (onTriggerToast) onTriggerToast(`Could not update stock: ${err.message}`);
+    } finally {
+      setSaving(false);
     }
-    setActionModal(null);
   };
+
+  const totalPages = meta?.totalPages ?? 1;
+  const firstRow = meta && meta.totalItems > 0 ? (meta.page - 1) * meta.size + 1 : 0;
+  const lastRow = meta ? firstRow + rows.length - (rows.length ? 1 : 0) : 0;
 
   return (
     <section id="inventory" className="section-block inventory-section">
@@ -201,7 +151,7 @@ export default function InventorySection({ onTriggerToast }) {
             <h2 className="section-title">Live Inventory Overview</h2>
           </div>
           <p className="section-subtitle">
-            Real-time SKU catalog, stock levels, and store allocation status
+            Real-time stock levels for {store ? `${store.name} (${store.address.city})` : 'the selected store'}
           </p>
         </div>
       </div>
@@ -214,7 +164,7 @@ export default function InventorySection({ onTriggerToast }) {
           <input
             type="text"
             className="inventory-search-input"
-            placeholder="Search product name, SKU, or barcode..."
+            placeholder="Search product name or ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -222,47 +172,51 @@ export default function InventorySection({ onTriggerToast }) {
 
         {/* Dropdowns */}
         <div className="inventory-dropdowns">
-          <select 
-            className="filter-select"
-            value={storeFilter}
-            onChange={(e) => setStoreFilter(e.target.value)}
-          >
-            <option value="All">All Stores</option>
-            <option value="STR-104">Store #104 (Austin)</option>
-            <option value="STR-208">Store #208 (Seattle)</option>
-            <option value="STR-315">Store #315 (Denver)</option>
-            <option value="Global Hub">Global Hub</option>
-          </select>
+          {onStoreChange && (
+            <select
+              className="filter-select"
+              value={storeId ?? ''}
+              onChange={(e) => onStoreChange(e.target.value)}
+              aria-label="Store"
+            >
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}{s.isActive ? '' : ' (closed)'}
+                </option>
+              ))}
+            </select>
+          )}
 
-          <select 
+          <select
             className="filter-select"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Stock status"
           >
-            <option value="All">Stock Status: All</option>
-            <option value="in-stock">In Stock</option>
-            <option value="low-stock">Low Stock</option>
-            <option value="out-of-stock">Out of Stock</option>
+            <option value="">Stock Status: All</option>
+            <option value="IN_STOCK">In Stock</option>
+            <option value="LOW_STOCK">Low Stock</option>
+            <option value="OUT_OF_STOCK">Out of Stock</option>
           </select>
 
-          <select 
+          <select
             className="filter-select"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="Category"
           >
-            <option value="All">Category: All</option>
-            <option value="Electronics">Electronics</option>
-            <option value="Grocery">Grocery</option>
-            <option value="Furniture">Furniture</option>
-            <option value="Fresh Bakery">Fresh Bakery</option>
-            <option value="Household">Household</option>
+            <option value="">Category: All</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
           </select>
 
           {/* Export CSV Button */}
-          <button 
-            type="button" 
+          <button
+            type="button"
             className="export-csv-btn"
             onClick={handleExportCSV}
+            disabled={rows.length === 0}
           >
             <Download size={14} />
             <span>Export CSV</span>
@@ -276,8 +230,8 @@ export default function InventorySection({ onTriggerToast }) {
           <table className="inventory-data-table">
             <thead>
               <tr>
-                <th>PRODUCT NAME & SKU</th>
-                <th>STORE ID & LOCATION</th>
+                <th>PRODUCT NAME & ID</th>
+                <th>STORE</th>
                 <th>CATEGORY</th>
                 <th>STOCK LEVEL</th>
                 <th>UNIT PRICE</th>
@@ -286,29 +240,41 @@ export default function InventorySection({ onTriggerToast }) {
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.map((p) => {
+              {loadState === 'error' && (
+                <tr><td colSpan={7} className="table-state-cell text-danger">Could not load inventory: {loadError}</td></tr>
+              )}
+              {loadState === 'loading' && rows.length === 0 && (
+                <tr><td colSpan={7} className="table-state-cell">Loading inventory…</td></tr>
+              )}
+              {loadState === 'ready' && rows.length === 0 && (
+                <tr><td colSpan={7} className="table-state-cell">No products match these filters.</td></tr>
+              )}
+              {loadState !== 'error' && rows.map((r) => {
+                const view = STATUS_VIEW[r.availability];
+                // Bar is full at four times the reorder level.
+                const fillPct = Math.min(100, Math.round((r.quantityAvailable / Math.max(1, r.reorderLevel * 4)) * 100));
                 return (
-                  <tr key={p.id}>
-                    {/* Product Name & SKU */}
+                  <tr key={r.product.id}>
+                    {/* Product Name & ID */}
                     <td>
                       <div className="product-identity-wrap">
-                        <span className="product-name-title">{p.name}</span>
-                        <span className="product-sku-code">{p.sku}</span>
+                        <span className="product-name-title">{r.product.name}</span>
+                        <span className="product-sku-code">{r.product.id} · {r.product.brandName}</span>
                       </div>
                     </td>
 
-                    {/* Store ID & Location */}
+                    {/* Store */}
                     <td>
                       <div className="store-location-wrap">
-                        <span className="store-code-bold">{p.storeId}</span>
-                        <span className="store-city-sub">{p.location}</span>
+                        <span className="store-code-bold">{r.storeId}</span>
+                        <span className="store-city-sub">{store?.address.city}</span>
                       </div>
                     </td>
 
                     {/* Category */}
                     <td>
                       <span className="category-tag-pill">
-                        {p.category}
+                        {r.product.categoryName}
                       </span>
                     </td>
 
@@ -316,23 +282,17 @@ export default function InventorySection({ onTriggerToast }) {
                     <td>
                       <div className="stock-level-cell">
                         <div className="stock-numbers-row">
-                          <span className={`stock-units-val ${p.units === 0 ? 'text-danger' : p.status === 'low-stock' ? 'text-warning' : ''}`}>
-                            {p.units} units
+                          <span className={`stock-units-val ${r.availability === 'OUT_OF_STOCK' ? 'text-danger' : r.availability === 'LOW_STOCK' ? 'text-warning' : ''}`}>
+                            {r.quantityAvailable} units
                           </span>
                           <span className="stock-limit-note">
-                            {p.limitText || `${p.fillPct}%`}
+                            Reorder at {r.reorderLevel}
                           </span>
                         </div>
                         <div className="stock-track-bar">
                           <div
-                            className={`stock-fill-bar ${
-                              p.status === 'out-of-stock'
-                                ? 'fill-red'
-                                : p.status === 'low-stock'
-                                ? 'fill-amber'
-                                : 'fill-green'
-                            }`}
-                            style={{ width: `${Math.max(p.fillPct, p.units > 0 ? 8 : 0)}%` }}
+                            className={`stock-fill-bar ${view.fill}`}
+                            style={{ width: `${Math.max(fillPct, r.quantityAvailable > 0 ? 8 : 0)}%` }}
                           ></div>
                         </div>
                       </div>
@@ -340,70 +300,26 @@ export default function InventorySection({ onTriggerToast }) {
 
                     {/* Unit Price */}
                     <td>
-                      <span className="unit-price-val">${p.price.toFixed(2)}</span>
+                      <span className="unit-price-val">{formatPrice(r.product.price)}</span>
                     </td>
 
                     {/* Status Pill */}
                     <td>
-                      {p.status === 'in-stock' && (
-                        <span className="status-badge badge-active">
-                          <span className="status-dot-green"></span>
-                          In Stock
-                        </span>
-                      )}
-                      {p.status === 'low-stock' && (
-                        <span className="status-badge badge-low-stock">
-                          <span className="status-dot-amber"></span>
-                          Low Stock
-                        </span>
-                      )}
-                      {p.status === 'out-of-stock' && (
-                        <span className="status-badge badge-depleted">
-                          <span className="status-dot-red"></span>
-                          Out of Stock
-                        </span>
-                      )}
+                      <span className={`status-badge ${view.badge}`}>
+                        <span className={view.dot}></span>
+                        {view.text}
+                      </span>
                     </td>
 
                     {/* Quick Action */}
                     <td>
                       <div className="quick-action-cell">
-                        {p.actionType === 'restock' && (
-                          <button
-                            type="button"
-                            className="action-btn btn-restock"
-                            onClick={() => setActionModal({ item: p, type: 'Restock', defaultQty: 50 })}
-                          >
-                            Restock
-                          </button>
-                        )}
-                        {p.actionType === 'reorder' && (
-                          <button
-                            type="button"
-                            className="action-btn btn-reorder"
-                            onClick={() => setActionModal({ item: p, type: 'Reorder', defaultQty: 30 })}
-                          >
-                            Reorder
-                          </button>
-                        )}
-                        {p.actionType === 'rush-po' && (
-                          <button
-                            type="button"
-                            className="action-btn btn-rush-po"
-                            onClick={() => setActionModal({ item: p, type: 'Rush PO', defaultQty: 25 })}
-                          >
-                            Rush PO
-                          </button>
-                        )}
-                        <button 
-                          type="button" 
-                          className="action-dots-btn"
-                          title="More options"
-                          onClick={() => {
-                            if (onTriggerToast) onTriggerToast(`Detailed audit log opened for ${p.sku}`);
-                          }}
+                        <button
+                          type="button"
+                          className={`action-btn ${view.btn}`}
+                          onClick={() => setActionModal({ item: r, type: view.action, defaultQty: view.qty })}
                         >
-                          <MoreVertical size={15} />
+                          {view.action}
                         </button>
                       </div>
                     </td>
@@ -417,51 +333,27 @@ export default function InventorySection({ onTriggerToast }) {
         {/* Pagination & Count */}
         <div className="inventory-pagination-row">
           <span className="pagination-count-label">
-            Showing <strong>1 to {filteredProducts.length}</strong> of <strong>1,428</strong> products
+            Showing <strong>{firstRow} to {lastRow}</strong> of <strong>{(meta?.totalItems ?? 0).toLocaleString('en-IN')}</strong> products
           </span>
 
           <div className="pagination-pills-wrap">
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="page-nav-btn"
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              aria-label="Previous page"
             >
               <ChevronLeft size={14} />
             </button>
-            <button 
-              type="button" 
-              className={`page-num-btn ${currentPage === 1 ? 'active' : ''}`}
-              onClick={() => setCurrentPage(1)}
-            >
-              1
-            </button>
-            <button 
-              type="button" 
-              className={`page-num-btn ${currentPage === 2 ? 'active' : ''}`}
-              onClick={() => setCurrentPage(2)}
-            >
-              2
-            </button>
-            <button 
-              type="button" 
-              className={`page-num-btn ${currentPage === 3 ? 'active' : ''}`}
-              onClick={() => setCurrentPage(3)}
-            >
-              3
-            </button>
-            <span className="pagination-ellipsis">...</span>
-            <button 
-              type="button" 
-              className="page-num-btn"
-              onClick={() => setCurrentPage(238)}
-            >
-              238
-            </button>
-            <button 
-              type="button" 
+            <span className="page-num-btn active">{currentPage}</span>
+            <span className="pagination-ellipsis">of {totalPages}</span>
+            <button
+              type="button"
               className="page-nav-btn"
-              onClick={() => setCurrentPage(currentPage + 1)}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              aria-label="Next page"
             >
               <ChevronRight size={14} />
             </button>
@@ -476,11 +368,11 @@ export default function InventorySection({ onTriggerToast }) {
             <div className="modal-header">
               <div>
                 <h3 className="modal-title">{actionModal.type} Item</h3>
-                <p className="modal-subtitle">{actionModal.item.name} ({actionModal.item.sku})</p>
+                <p className="modal-subtitle">{actionModal.item.product.name} ({actionModal.item.product.id})</p>
               </div>
-              <button 
-                type="button" 
-                className="modal-close-btn" 
+              <button
+                type="button"
+                className="modal-close-btn"
                 onClick={() => setActionModal(null)}
               >
                 <X size={18} />
@@ -490,29 +382,27 @@ export default function InventorySection({ onTriggerToast }) {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                const form = e.target;
-                const qty = form.quantity.value;
-                handleConfirmAction(qty);
+                handleConfirmAction(e.target.quantity.value);
               }}
               className="modal-body-form"
             >
               <div className="modal-meta-grid">
                 <div className="meta-box">
                   <span className="meta-label">Current Stock</span>
-                  <span className="meta-value">{actionModal.item.units} units</span>
+                  <span className="meta-value">{actionModal.item.quantityAvailable} units</span>
                 </div>
                 <div className="meta-box">
                   <span className="meta-label">Retail Location</span>
-                  <span className="meta-value">{actionModal.item.location}</span>
+                  <span className="meta-value">{store?.name ?? actionModal.item.storeId}</span>
                 </div>
                 <div className="meta-box">
-                  <span className="meta-label">Unit Cost</span>
-                  <span className="meta-value">${actionModal.item.price.toFixed(2)}</span>
+                  <span className="meta-label">Unit Price</span>
+                  <span className="meta-value">{formatPrice(actionModal.item.product.price)}</span>
                 </div>
               </div>
 
               <div className="form-group-field">
-                <label className="field-label">Quantity to Dispatch / Order</label>
+                <label className="field-label">Quantity to add to stock</label>
                 <input
                   type="number"
                   name="quantity"
@@ -522,15 +412,6 @@ export default function InventorySection({ onTriggerToast }) {
                   className="modal-number-input"
                   required
                 />
-              </div>
-
-              <div className="form-group-field">
-                <label className="field-label">Logistics Priority</label>
-                <select className="modal-select-input" defaultValue="expedited">
-                  <option value="standard">Standard Carrier (3-5 days)</option>
-                  <option value="expedited">AI Expedited Smart-Routing (Next Day)</option>
-                  <option value="emergency">Emergency Fleet Drone / Same-Day</option>
-                </select>
               </div>
 
               <div className="modal-actions-footer">
@@ -544,8 +425,9 @@ export default function InventorySection({ onTriggerToast }) {
                 <button
                   type="submit"
                   className="modal-btn-confirm"
+                  disabled={saving}
                 >
-                  Confirm & Dispatch
+                  {saving ? 'Saving…' : 'Confirm & Update Stock'}
                 </button>
               </div>
             </form>

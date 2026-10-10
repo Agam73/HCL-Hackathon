@@ -11,6 +11,7 @@ import CustomerStorefrontClassic from './customer/CustomerStorefrontClassic';
 import LandingPage from './landing/LandingPage';
 import AuthPage from './auth/AuthPage';
 import ToastContainer from './shared/ToastContainer';
+import RequireRole, { AdminGate } from './api/RequireRole';
 
 export default function App() {
   const [toasts, setToasts] = useState([]);
@@ -26,8 +27,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* 1. Customer Shopping Page at '/' */}
-        <Route path="/" element={<CustomerStorefront onTriggerToast={addToast} />} />
+        {/* 1. Customer Shopping Page at '/' - signed-in customers only; everyone else lands on /login */}
+        <Route
+          path="/"
+          element={
+            <RequireRole roles={['CUSTOMER']}>
+              <CustomerStorefront onTriggerToast={addToast} />
+            </RequireRole>
+          }
+        />
         <Route path="/customer-classic" element={<CustomerStorefrontClassic onTriggerToast={addToast} />} />
 
         {/* 2. Authentication: Login & Register */}
@@ -37,12 +45,26 @@ export default function App() {
         {/* 3. Public Marketing Landing Page at '/landing' */}
         <Route path="/landing" element={<LandingPage onTriggerToast={addToast} />} />
 
-        {/* 4. Store Manager at '/storemanager' */}
-        <Route path="/storemanager" element={<StoreManagerDashboard onTriggerToast={addToast} />} />
+        {/* 4. Store Manager at '/storemanager' - signed-in store managers only */}
+        <Route
+          path="/storemanager"
+          element={
+            <RequireRole roles={['STORE_MANAGER']}>
+              <StoreManagerDashboard onTriggerToast={addToast} />
+            </RequireRole>
+          }
+        />
         <Route path="/storemanager-classic" element={<StoreManagerDashboardClassic onTriggerToast={addToast} />} />
 
-        {/* 5. Admin Portal at '/admin' and its dedicated sub-pages */}
-        <Route path="/admin/*" element={<AdminLayout onTriggerToast={addToast} />} />
+        {/* 5. Admin Portal at '/admin' - no login; opens only on an authorised admin PC */}
+        <Route
+          path="/admin/*"
+          element={
+            <AdminGate>
+              <AdminLayout onTriggerToast={addToast} />
+            </AdminGate>
+          }
+        />
 
         {/* Fallback to Customer Storefront */}
         <Route path="*" element={<Navigate to="/" replace />} />

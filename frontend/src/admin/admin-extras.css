@@ -1,0 +1,67 @@
+/* Small additions for the live admin pages (inventory, products, stores). */
+.table-state-cell {
+  text-align: center;
+  padding: 28px 16px !important;
+  color: #64748B;
+  font-size: 13px;
+}
+.admin-row-inactive td {
+  opacity: 0.55;
+}
+.admin-primary-btn {
+  background: #2563EB;
+  color: #FFFFFF;
+  border-color: #2563EB;
+}
+.admin-primary-btn:hover {
+  background: #1D4ED8;
+}
+.admin-wide-modal {
+  max-width: 680px;
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+.admin-form-grid .form-group-field {
+  margin-bottom: 0;
+}
+.admin-span-2 {
+  grid-column: 1 / -1;
+}
+.admin-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.admin-textarea {
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.admin-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+}
+.admin-form-error {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #B91C1C;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  margin-bottom: 12px;
+}
+@media (max-width: 640px) {
+  .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

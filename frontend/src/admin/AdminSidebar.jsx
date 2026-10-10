@@ -3,7 +3,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   BookOpen, 
-  Package
+  Package,
+  Tags,
+  Store
 } from 'lucide-react';
 import logoImg from '../assets/logo.png';
 
@@ -13,7 +15,9 @@ export default function AdminSidebar() {
 
   const isKB = location.pathname.includes('/knowledge-base');
   const isInventory = location.pathname.includes('/inventory');
-  const isDashboard = !isKB && !isInventory;
+  const isProducts = location.pathname.includes('/products');
+  const isStores = location.pathname.includes('/stores');
+  const isDashboard = !isKB && !isInventory && !isProducts && !isStores;
 
   const mainNavItems = [
     { 
@@ -36,6 +40,20 @@ export default function AdminSidebar() {
       icon: Package,
       path: '/admin/inventory',
       active: isInventory
+    },
+    {
+      id: 'products',
+      label: 'Products',
+      icon: Tags,
+      path: '/admin/products',
+      active: isProducts
+    },
+    {
+      id: 'stores',
+      label: 'Stores',
+      icon: Store,
+      path: '/admin/stores',
+      active: isStores
     },
   ];
 

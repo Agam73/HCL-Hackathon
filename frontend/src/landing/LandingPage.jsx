@@ -25,6 +25,8 @@ import {
   X
 } from 'lucide-react';
 import './LandingPage.css';
+import { login, register, logout } from '../api/client';
+import { homeFor } from '../api/RequireRole';
 
 export default function LandingPage({ onTriggerToast }) {
   const navigate = useNavigate();
@@ -88,111 +90,74 @@ export default function LandingPage({ onTriggerToast }) {
     }
   };
 
-  // Backend-aligned Login Handler (POST /api/v1/auth/login)
+  const say = (message) => {
+    if (onTriggerToast) onTriggerToast(message);
+  };
+  const firstProblem = (err) => err.details?.[0]?.message ?? err.message;
+
+  // Login - POST /auth/login. A wrong password is an error, never a session.
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     const email = loginEmail.trim().toLowerCase();
-    const password = loginPassword;
-
-    if (!email || !password) {
-      if (onTriggerToast) onTriggerToast('Please enter both email and password.');
+    if (!email || !loginPassword) {
+      say('Please enter both email and password.');
       return;
     }
-
     try {
-      const res = await fetch('http://localhost:8080/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (res.ok && data?.data?.token) {
-        localStorage.setItem('auth_token', data.data.token);
-        localStorage.setItem('auth_user', JSON.stringify(data.data.user));
-        setShowAuthModal(false);
-        if (onTriggerToast) onTriggerToast(`Welcome back, ${data.data.user.fullName || email}!`);
-        if (data.data.user.role === 'STORE_MANAGER') navigate('/storemanager');
-        else if (data.data.user.role === 'ADMIN') navigate('/admin');
-        else navigate('/');
-        return;
-      }
-    } catch {
-      // Backend server offline, proceed gracefully with local session
+      const user = await login(email, loginPassword);
+      setShowAuthModal(false);
+      say(`Welcome back, ${user.fullName}!`);
+      navigate(homeFor(user.role));
+    } catch (err) {
+      say(err.status === 401 ? 'Incorrect email or password.' : firstProblem(err));
     }
-
-    setShowAuthModal(false);
-    if (onTriggerToast) {
-      onTriggerToast(`Welcome back, ${email}! Signed in successfully.`);
-    }
-    if (email.includes('admin')) navigate('/admin');
-    else if (email.includes('manager')) navigate('/storemanager');
-    else navigate('/');
   };
 
-  // Backend-aligned Register Handler (POST /api/v1/auth/register)
+  // Register - POST /auth/register (new accounts start on the Standard tier)
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     if (!registerEmail || !registerPassword || !registerName) {
-      if (onTriggerToast) onTriggerToast('Please fill in all required fields.');
+      say('Please fill in all required fields.');
       return;
     }
-
     if (registerPassword.length < 8) {
-      if (onTriggerToast) onTriggerToast('Password must be at least 8 characters (backend security requirement).');
+      say('Password must be at least 8 characters.');
       return;
     }
-
-    const payload = {
-      fullName: registerName.trim(),
-      email: registerEmail.trim().toLowerCase(),
-      password: registerPassword,
-      phone: registerPhone.trim() || undefined,
-      city: registerCity.trim() || undefined,
-      country: 'IN',
-      membershipTier: registerTier,
-      preferredStoreId: registerStoreId,
-    };
-
     try {
-      const res = await fetch('http://localhost:8080/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const user = await register({
+        fullName: registerName.trim(),
+        email: registerEmail.trim().toLowerCase(),
+        password: registerPassword,
+        phone: registerPhone.trim() || undefined,
+        city: registerCity.trim() || undefined,
+        country: 'IN',
+        preferredStoreId: registerStoreId,
       });
-      const data = await res.json();
-      if (res.ok && data?.data?.token) {
-        localStorage.setItem('auth_token', data.data.token);
-        localStorage.setItem('auth_user', JSON.stringify(data.data.user));
-        setShowAuthModal(false);
-        if (onTriggerToast) onTriggerToast(`Account created for ${data.data.user.fullName}! Welcome to NovaMart.`);
-        navigate('/');
-        return;
-      } else if (data?.error?.message) {
-        if (onTriggerToast) onTriggerToast(`Registration: ${data.error.message}`);
-        return;
-      }
-    } catch {
-      // Backend server offline, proceed gracefully with local session
+      setShowAuthModal(false);
+      say(`Account created for ${user.fullName}! Welcome to NovaMart.`);
+      navigate(homeFor(user.role));
+    } catch (err) {
+      say(`Registration: ${firstProblem(err)}`);
     }
-
-    setShowAuthModal(false);
-    if (onTriggerToast) {
-      onTriggerToast(`Account created for ${registerName}! Tier: ${registerTier} active.`);
-    }
-    navigate('/');
   };
 
-  const handleQuickPersonaLogin = (persona) => {
+  // 1-Click demo logins sign in to the seeded demo accounts on the backend.
+  const handleQuickPersonaLogin = async (persona) => {
     setShowAuthModal(false);
-    if (persona === 'customer') {
-      if (onTriggerToast) onTriggerToast('Logged in as Priya Sharma / Meera Iyer (Customer - GOLD Tier)');
-      navigate('/');
-    } else if (persona === 'storemanager') {
-      if (onTriggerToast) onTriggerToast('Logged in as Ananya Rao (Store Manager — ST-BLR-01)');
-      navigate('/storemanager');
-    } else if (persona === 'admin') {
-      if (onTriggerToast) onTriggerToast('Logged in as Aarav Mehta (ADMIN — NovaMart Central Ops)');
+    if (persona === 'admin') {
+      // The admin portal has no login: it opens only on an authorised admin PC.
+      await logout();
       navigate('/admin');
+      return;
+    }
+    const email = persona === 'storemanager' ? 'manager.blr01@novamart.com' : 'meera.iyer@example.com';
+    try {
+      const user = await login(email, 'Passw0rd!');
+      say(`Logged in as ${user.fullName}`);
+      navigate(homeFor(user.role));
+    } catch (err) {
+      say(firstProblem(err));
     }
   };
 
