@@ -10,6 +10,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pool, closePool } from '../src/db/pool.js';
+import env from '../src/config/env.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(here, '..', 'db', 'migrations');
@@ -20,6 +21,16 @@ async function main() {
 
   try {
     if (reset) {
+      // --reset wipes everything. On a shared (non-local) database that means
+      // everyone's data, so it has to be asked for twice.
+      const host = new URL(env.databaseUrl).hostname;
+      const isLocal = ['localhost', '127.0.0.1', '::1', 'db'].includes(host);
+      if (!isLocal && process.env.ALLOW_REMOTE_RESET !== 'true') {
+        throw new Error(
+          `refusing to --reset the remote database at ${host}. ` +
+            'If you really mean to wipe it for the whole team, set ALLOW_REMOTE_RESET=true.'
+        );
+      }
       console.warn('[migrate] --reset: dropping schema public');
       await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
     }

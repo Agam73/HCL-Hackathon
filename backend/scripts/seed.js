@@ -123,20 +123,26 @@ async function seedStores(client) {
 
 async function seedInventory(client) {
   const rows = await readCsvs('inventory.csv', 'inventory_generated.csv');
-  for (const r of rows) {
-    await client.query(
-      `INSERT INTO inventory
-         (store_id, product_id, quantity_available, quantity_reserved, reorder_level, last_synced_at)
-       VALUES ($1,$2,$3,$4,$5, now())
-       ON CONFLICT (store_id, product_id) DO UPDATE SET
-         quantity_available = EXCLUDED.quantity_available,
-         quantity_reserved  = EXCLUDED.quantity_reserved,
-         reorder_level      = EXCLUDED.reorder_level,
-         last_synced_at     = now()`,
-      [r.store_id, r.product_id, num(r.quantity_available) ?? 0,
-       num(r.quantity_reserved) ?? 0, num(r.reorder_level) ?? 5]
-    );
-  }
+  // One statement for all rows: thousands of round trips are slow on a hosted database.
+  await client.query(
+    `INSERT INTO inventory
+       (store_id, product_id, quantity_available, quantity_reserved, reorder_level, last_synced_at)
+     SELECT t.store_id, t.product_id, t.available, t.reserved, t.reorder, now()
+       FROM unnest($1::text[], $2::text[], $3::int[], $4::int[], $5::int[])
+            AS t(store_id, product_id, available, reserved, reorder)
+     ON CONFLICT (store_id, product_id) DO UPDATE SET
+       quantity_available = EXCLUDED.quantity_available,
+       quantity_reserved  = EXCLUDED.quantity_reserved,
+       reorder_level      = EXCLUDED.reorder_level,
+       last_synced_at     = now()`,
+    [
+      rows.map((r) => r.store_id),
+      rows.map((r) => r.product_id),
+      rows.map((r) => num(r.quantity_available) ?? 0),
+      rows.map((r) => num(r.quantity_reserved) ?? 0),
+      rows.map((r) => num(r.reorder_level) ?? 5),
+    ]
+  );
   return rows.length;
 }
 

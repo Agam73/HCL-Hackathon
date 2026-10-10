@@ -30,6 +30,19 @@ npm test            # Jest: unit + integration (needs the migrated, seeded DB; n
 npm run smoke       # 42 HTTP checks against a running server
 ```
 
+**Shared database (Supabase).** To use the team's hosted Postgres instead of local Docker,
+set `DATABASE_URL` to the project's **Session pooler** connection string and `PGSSL=true` in
+`.env` (see `.env.example`; the "direct" `db.<ref>.supabase.co` host is IPv6-only and does not
+resolve on most networks). The schema and seed are already loaded there, so do **not** re-run
+`db:seed` against it (it resets the seeded accounts for everyone), and `db:reset` refuses to
+run against a remote database unless `ALLOW_REMOTE_RESET=true`. Every table has row level
+security enabled with no policies, so Supabase's public REST API cannot read them; the backend
+connects as the owner and is unaffected.
+
+**Tests never touch `DATABASE_URL`.** `npm test` always uses `TEST_DATABASE_URL`, defaulting to
+the local Docker Postgres, because the tests create and delete rows. Keep
+`docker compose up -d db` running (migrated and seeded) to run them.
+
 CI (`.github/workflows/ci.yml`) runs lint, migrate, seed and `npm test` on every pull request.
 
 Other scripts: `npm run db:reset` (drop + migrate + seed),
@@ -212,7 +225,11 @@ driver errors are translated — a unique violation becomes a 409, a missing tab
 ├── db/
 │   ├── migrations/
 │   │   ├── 001_init.sql        all tables, enums, indexes, triggers
-│   │   └── 002_views.sql       v_product_catalog, v_product_availability, v_low_stock
+│   │   ├── 002_views.sql       v_product_catalog, v_product_availability, v_low_stock
+│   │   ├── 003_refresh_tokens.sql
+│   │   ├── 004_order_details.sql
+│   │   ├── 005_row_level_security.sql
+│   │   └── 006_views_respect_rls.sql
 │   └── seed/                   brands, categories, products, stores, inventory, customers
 │                               (+ products_generated.csv / inventory_generated.csv)
 ├── scripts/

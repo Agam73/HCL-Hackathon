@@ -10,6 +10,13 @@ function required(key, fallback) {
   return value;
 }
 
+const LOCAL_DATABASE_URL = 'postgresql://retailpulse:retailpulse@localhost:5432/retailpulse';
+
+// Tests create and delete rows, so they never run against DATABASE_URL (which may be
+// the team's shared database). Jest sets NODE_ENV=test; point TEST_DATABASE_URL
+// somewhere else if the local Docker Postgres is not what you want.
+const isTest = process.env.NODE_ENV === 'test';
+
 const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 8080),
@@ -19,11 +26,12 @@ const env = {
     .map((o) => o.trim())
     .filter(Boolean),
 
-  databaseUrl: required(
-    'DATABASE_URL',
-    'postgresql://retailpulse:retailpulse@localhost:5432/retailpulse'
-  ),
-  pgSsl: String(process.env.PGSSL ?? 'false') === 'true',
+  databaseUrl: isTest
+    ? (process.env.TEST_DATABASE_URL ?? LOCAL_DATABASE_URL)
+    : required('DATABASE_URL', LOCAL_DATABASE_URL),
+  pgSsl: !isTest && String(process.env.PGSSL ?? 'false') === 'true',
+  // Hosted Postgres (e.g. Supabase's pooler) caps connections per project; keep this small.
+  pgPoolMax: Number(process.env.PG_POOL_MAX ?? 5),
 
   jwtSecret: required('JWT_SECRET', 'dev-only-change-me-7f3a9c1e5b2d4086'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '15m',
