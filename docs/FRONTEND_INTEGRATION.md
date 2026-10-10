@@ -319,6 +319,11 @@ cross-store feed below.
 optionally `reorderLevel`. Stock cannot go negative (`400`). A STORE_MANAGER may only change
 their own store (`403` otherwise); ADMIN may change any.
 
+**Stock history** — `GET /stores/:storeId/inventory/movements?productId=&type=` (that store's
+manager or ADMIN). Rows: `type` (`RESTOCK`, `SALE`, `RETURN`, `ADJUSTMENT`), `quantityDelta`,
+`quantityAfter`, `reason`, `referenceType` / `referenceId` (the order, for sales and returns),
+`createdBy`, `createdAt`.
+
 **Low-stock feeds** (rows: `storeId`, `storeName`, `productId`, `productName`, `categoryName`,
 `quantityAvailable`, `reorderLevel`, `shortfall`):
 
@@ -408,6 +413,9 @@ The order:
   "placedAt": "2026-10-10T09:00:00.000Z" }
 ```
 
+- Send an `Idempotency-Key` header with a fresh random value per checkout attempt (reuse
+  it when retrying the same attempt). A repeat returns the original order with `200`, so a
+  double click or a network retry can never place two orders.
 - After a successful checkout the cart is empty; re-fetch `GET /cart` for the badge.
 - `409` on checkout means stock is short: `error.details[]` has `productId`, `code`
   (`OUT_OF_STOCK` / `INSUFFICIENT_STOCK`), `available`. The cart is unchanged.

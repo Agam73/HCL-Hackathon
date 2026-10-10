@@ -2,6 +2,7 @@ import { query, queryOne, withTransaction } from '../../db/pool.js';
 import ApiError from '../../utils/ApiError.js';
 import { toOffset } from '../../utils/schemas.js';
 import { assertStoreExists } from '../stores/store.service.js';
+import { recordMovement } from './inventory.movements.js';
 
 function toInventoryRow(row) {
   return {
@@ -154,6 +155,19 @@ export async function upsertStoreInventory(storeId, productId, patch, context = 
     );
 
     const row = rows[0];
+    if (nextQty !== currentQty) {
+      await recordMovement(client, {
+        storeId,
+        productId,
+        // Stock coming in is a restock; a downward correction is an adjustment.
+        type: nextQty > currentQty ? 'RESTOCK' : 'ADJUSTMENT',
+        quantityDelta: nextQty - currentQty,
+        quantityAfter: nextQty,
+        reservedAfter: row.quantity_reserved,
+        reason: patch.reason,
+        createdBy: context.userId,
+      });
+    }
     return {
       storeId: row.store_id,
       productId: row.product_id,

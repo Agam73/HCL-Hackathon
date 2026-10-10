@@ -67,6 +67,7 @@ router.get('/', (req, res) =>
       'GET    /stores/:storeId/inventory/:productId',
       'PATCH  /stores/:storeId/inventory/:productId     (STORE_MANAGER own store | ADMIN)',
       'GET    /stores/:storeId/inventory/low-stock      (STORE_MANAGER own store | ADMIN)',
+      'GET    /stores/:storeId/inventory/movements      (STORE_MANAGER own store | ADMIN)',
       'GET    /inventory/low-stock                      (ADMIN)',
       'GET    /cart                                     (logged in)',
       'POST   /cart/items                               (logged in)',

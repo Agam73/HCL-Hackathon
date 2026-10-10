@@ -6,7 +6,7 @@ Module 1's catalog/store/inventory layer, auth (with refresh tokens), the cart a
 the rest of the team can build in parallel without touching each other's files.
 
 ```
-Status: lint clean, 64 Jest tests and 42 smoke checks passing against a seeded database.
+Status: lint clean, 75 Jest tests and 42 smoke checks passing against a seeded database.
 ```
 
 ---
@@ -120,7 +120,12 @@ customer's own store is out of stock.
 | GET | `/stores/:storeId/inventory/:productId` | public |
 | PATCH | `/stores/:storeId/inventory/:productId` | STORE_MANAGER (own store only) or ADMIN |
 | GET | `/stores/:storeId/inventory/low-stock` | STORE_MANAGER (own store) or ADMIN |
+| GET | `/stores/:storeId/inventory/movements` — `productId`, `type` | STORE_MANAGER (own store) or ADMIN — the stock ledger |
 | GET | `/inventory/low-stock` | ADMIN — across all stores |
+
+Every stock change is appended to `inventory_movements` in the same transaction that
+changes the balance: `RESTOCK` / `ADJUSTMENT` for manual changes, `SALE` at checkout and
+`RETURN` on cancellation (both linked to the order). Each row stores the balance after it.
 
 `PATCH` takes `{ quantityAvailable }` **or** `{ delta }` (e.g. `-3` for a sale), plus
 optional `reorderLevel` and `reason`. It runs in a transaction with `SELECT … FOR UPDATE`,
@@ -171,6 +176,9 @@ paymentMethod?, simulatePaymentFailure? }`:
 - `HOME_DELIVERY` needs `shippingAddress` and ships from the customer's store if it can cover
   the whole order, otherwise a warehouse, otherwise another store. `deliverySpeed` is
   `STANDARD` or `EXPRESS`; the fee follows the same tier rules as the cart.
+- Send an `Idempotency-Key` header (or `idempotencyKey` in the body, 8–128 characters) to
+  make retries safe: the same customer repeating the same key gets the original order back
+  with `200` instead of a second order.
 - Payment is simulated: `SIMULATED_PAID`, or `PAY_ON_DELIVERY` for `CASH_ON_DELIVERY`.
   `simulatePaymentFailure: true` returns `402 PAYMENT_FAILED` and changes nothing.
 
@@ -229,7 +237,8 @@ driver errors are translated — a unique violation becomes a 409, a missing tab
 │   │   ├── 003_refresh_tokens.sql
 │   │   ├── 004_order_details.sql
 │   │   ├── 005_row_level_security.sql
-│   │   └── 006_views_respect_rls.sql
+│   │   ├── 006_views_respect_rls.sql
+│   │   └── 007_schema_extras.sql   stock ledger, ticket thread, product_images view, order tax + idempotency
 │   └── seed/                   brands, categories, products, stores, inventory, customers
 │                               (+ products_generated.csv / inventory_generated.csv)
 ├── scripts/
@@ -283,6 +292,11 @@ Already created, so nobody needs to write DDL for their module:
 **Users** `users` — `user_role` (CUSTOMER / STORE_MANAGER / ADMIN), `membership_tier`
 (STANDARD / SILVER / GOLD / PLATINUM), `preferences` jsonb, `preferred_store_id`,
 `managed_store_id`
+**Added from the team's schema proposal (`db/schema.sql`, migration 007)**
+`inventory_movements` (stock ledger), `ticket_messages`, `product_images` (a view over
+`products.images`; first image is primary), `orders.tax` / `orders.idempotency_key`,
+`support_tickets.store_id` / `is_escalated`, and the `SUPPORT_AGENT` role. `db/schema.sql`
+itself is a reference design and is not applied; the migrations are the source of truth.
 **Module 2 (RAG)** `kb_documents` — `doc_type`, `version`, `effective_date`, `country`,
 `category_id`, `min_tier` (exactly the filters the use case asks for);
 `kb_chunks` — `section`, `content`, `metadata` jsonb, `embedding vector(1536)` with an

@@ -30,6 +30,9 @@ export const placeOrderBody = z
     deliverySpeed: z.enum(['STANDARD', 'EXPRESS']).default('STANDARD'),
     shippingAddress: shippingAddress.optional(),
     paymentMethod: z.enum(['CARD', 'UPI', 'NET_BANKING', 'CASH_ON_DELIVERY']).default('UPI'),
+    // Retrying a checkout with the same key returns the first order instead of
+    // creating a second one. The Idempotency-Key header works too.
+    idempotencyKey: z.string().trim().min(8).max(128).optional(),
     // Payment is simulated; this lets a demo or test show the decline path.
     simulatePaymentFailure: z.boolean().default(false),
   })

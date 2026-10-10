@@ -6,7 +6,12 @@ import { ok, paged } from '../../utils/response.js';
 import { storeIdParam, storeProductParams, pageQuery } from '../../utils/schemas.js';
 import { z } from 'zod';
 import * as inventory from './inventory.service.js';
-import { storeInventoryQuery, upsertInventoryBody } from './inventory.schema.js';
+import {
+  storeInventoryQuery,
+  upsertInventoryBody,
+  listMovementsQuery,
+} from './inventory.schema.js';
+import { listMovements } from './inventory.movements.js';
 
 /**
  * Mounted at /stores/:storeId/inventory (mergeParams gives us :storeId).
@@ -35,6 +40,22 @@ storeInventoryRouter.get(
   validate({ params: storeIdParam, query: z.object({ ...pageQuery }) }),
   asyncHandler(async (req, res) => {
     const { items, totalItems } = await inventory.listLowStock(req.params.storeId, req.query);
+    return paged(res, items, { page: req.query.page, size: req.query.size, totalItems });
+  })
+);
+
+/**
+ * GET /stores/:storeId/inventory/movements?productId=&type= - the stock ledger:
+ * every restock, sale, return and adjustment. STORE_MANAGER (own store) or ADMIN.
+ */
+storeInventoryRouter.get(
+  '/movements',
+  requireAuth,
+  requireRole('STORE_MANAGER', 'ADMIN'),
+  requireStoreScope('storeId'),
+  validate({ params: storeIdParam, query: listMovementsQuery }),
+  asyncHandler(async (req, res) => {
+    const { items, totalItems } = await listMovements(req.params.storeId, req.query);
     return paged(res, items, { page: req.query.page, size: req.query.size, totalItems });
   })
 );

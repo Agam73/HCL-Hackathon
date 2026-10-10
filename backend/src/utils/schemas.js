@@ -30,7 +30,7 @@ export const storeProductParams = z.object({
 });
 
 export const MEMBERSHIP_TIERS = ['STANDARD', 'SILVER', 'GOLD', 'PLATINUM'];
-export const USER_ROLES = ['CUSTOMER', 'STORE_MANAGER', 'ADMIN'];
+export const USER_ROLES = ['CUSTOMER', 'STORE_MANAGER', 'SUPPORT_AGENT', 'ADMIN'];
 
 /** Offset helper: page is 1-based. */
 export function toOffset({ page, size }) {

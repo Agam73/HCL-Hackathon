@@ -3,6 +3,7 @@ import { query, queryOne, withTransaction } from '../../db/pool.js';
 import ApiError from '../../utils/ApiError.js';
 import { toOffset } from '../../utils/schemas.js';
 import { priceCart } from '../cart/cart.pricing.js';
+import { recordMovement } from '../inventory/inventory.movements.js';
 
 /**
  * What staff may move an order to next. Pickup and delivery share the first
@@ -51,6 +52,7 @@ function toOrder(row, items) {
       lineTotal: i.line_total,
     })),
     subtotal: row.subtotal,
+    tax: row.tax,
     discountTotal: row.discount_total,
     deliveryFee: row.delivery_fee,
     total: row.total,
@@ -176,7 +178,33 @@ async function pickDeliverySource(client, lines, preferredStoreId) {
  * emptied - or none of it happens.
  */
 export async function placeOrder(user, input) {
-  const orderId = await withTransaction(async (client) => {
+  const findByKey = () =>
+    input.idempotencyKey
+      ? queryOne('SELECT id FROM orders WHERE user_id = $1 AND idempotency_key = $2', [
+          user.id,
+          input.idempotencyKey,
+        ])
+      : null;
+
+  // A retried request (double click, flaky network) gets the original order back.
+  const earlier = await findByKey();
+  if (earlier) return { order: await getOrder(earlier.id, user), replayed: true };
+
+  let orderId;
+  try {
+    orderId = await createOrder(user, input);
+  } catch (err) {
+    // Identical requests raced: one created the order, the others then found an
+    // empty cart (or hit the unique index). If the order now exists, that is the answer.
+    const winner = await findByKey();
+    if (winner) return { order: await getOrder(winner.id, user), replayed: true };
+    throw err;
+  }
+  return { order: await getOrder(orderId, user), replayed: false };
+}
+
+function createOrder(user, input) {
+  return withTransaction(async (client) => {
     const { rows: owners } = await client.query(
       'SELECT membership_tier, preferred_store_id FROM users WHERE id = $1',
       [user.id]
@@ -255,11 +283,13 @@ export async function placeOrder(user, input) {
     }
 
     for (const line of lines) {
-      await client.query(
+      const { rows: after } = await client.query(
         `UPDATE inventory SET quantity_available = quantity_available - $3, last_synced_at = now()
-          WHERE store_id = $1 AND product_id = $2`,
+          WHERE store_id = $1 AND product_id = $2
+          RETURNING quantity_available, quantity_reserved`,
         [storeId, line.product_id, line.quantity]
       );
+      line.balance = after[0];
     }
 
     // ---- totals: the same tier rules the cart showed ----
@@ -280,8 +310,8 @@ export async function placeOrder(user, input) {
       `INSERT INTO orders
          (order_number, user_id, store_id, fulfillment, status, subtotal, discount_total,
           delivery_fee, total, shipping_address, payment_status, payment_method,
-          delivery_speed, reward_points)
-       VALUES ($1,$2,$3,$4::fulfillment_type,'CONFIRMED',$5,0,$6,$7,$8::jsonb,$9,$10,$11,$12)
+          delivery_speed, reward_points, idempotency_key)
+       VALUES ($1,$2,$3,$4::fulfillment_type,'CONFIRMED',$5,0,$6,$7,$8::jsonb,$9,$10,$11,$12,$13)
        RETURNING id`,
       [
         newOrderNumber(),
@@ -296,6 +326,7 @@ export async function placeOrder(user, input) {
         input.paymentMethod,
         deliverySpeed,
         membership.rewardPointsEarned,
+        input.idempotencyKey ?? null,
       ]
     );
 
@@ -305,25 +336,49 @@ export async function placeOrder(user, input) {
          VALUES ($1,$2,$3,$4,$5)`,
         [created[0].id, line.product_id, line.quantity, line.price, line.price * line.quantity]
       );
+      await recordMovement(client, {
+        storeId,
+        productId: line.product_id,
+        type: 'SALE',
+        quantityDelta: -line.quantity,
+        quantityAfter: line.balance.quantity_available,
+        reservedAfter: line.balance.quantity_reserved,
+        referenceType: 'ORDER',
+        referenceId: created[0].id,
+        createdBy: user.id,
+      });
     }
 
     await client.query('DELETE FROM cart_items WHERE cart_id = $1', [carts[0].id]);
     return created[0].id;
   });
-
-  return getOrder(orderId, user);
 }
 
 /** Put a cancelled order's units back on the shelf it was taken from. */
-async function restock(client, order) {
+async function restock(client, order, actor) {
   if (!order.store_id) return;
-  await client.query(
+  const { rows } = await client.query(
     `UPDATE inventory i
         SET quantity_available = i.quantity_available + oi.quantity, last_synced_at = now()
        FROM order_items oi
-      WHERE oi.order_id = $1 AND i.store_id = $2 AND i.product_id = oi.product_id`,
+      WHERE oi.order_id = $1 AND i.store_id = $2 AND i.product_id = oi.product_id
+      RETURNING i.product_id, oi.quantity, i.quantity_available, i.quantity_reserved`,
     [order.id, order.store_id]
   );
+  for (const row of rows) {
+    await recordMovement(client, {
+      storeId: order.store_id,
+      productId: row.product_id,
+      type: 'RETURN',
+      quantityDelta: row.quantity,
+      quantityAfter: row.quantity_available,
+      reservedAfter: row.quantity_reserved,
+      reason: `Order ${order.order_number} cancelled`,
+      referenceType: 'ORDER',
+      referenceId: order.id,
+      createdBy: actor.id,
+    });
+  }
 }
 
 async function changeStatus(orderRef, user, decide) {
@@ -341,7 +396,7 @@ async function changeStatus(orderRef, user, decide) {
       next,
     ]);
     if (next === 'CANCELLED') {
-      await restock(client, order);
+      await restock(client, order, user);
       if (order.payment_status === 'SIMULATED_PAID') {
         await client.query(
           `UPDATE orders SET payment_status = 'SIMULATED_REFUNDED' WHERE id = $1`,

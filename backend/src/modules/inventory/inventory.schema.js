@@ -18,6 +18,12 @@ export const storeInventoryQuery = z.object({
   sort: z.enum(['quantity_asc', 'quantity_desc', 'name_asc', 'shortfall_desc']).optional(),
 });
 
+export const listMovementsQuery = z.object({
+  ...pageQuery,
+  productId: z.string().trim().min(1).max(64).optional(),
+  type: z.enum(['RESTOCK', 'SALE', 'RESERVE', 'RELEASE', 'ADJUSTMENT', 'RETURN']).optional(),
+});
+
 export const upsertInventoryBody = z
   .object({
     // Either set an absolute quantity...
