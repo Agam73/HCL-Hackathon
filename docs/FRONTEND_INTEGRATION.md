@@ -424,8 +424,28 @@ The order:
   Delivery: `CONFIRMED → PACKED → SHIPPED → DELIVERED`.
 - Cancelling returns the stock to the store it came from.
 
-## 12. Not available yet
+## 12. AI product recommendations
 
-No endpoints exist for AI recommendations, the shopping chat, document
-upload or knowledge-base search, analytics, or support tickets. Keep those parts of the UI on
+`POST /assistant/recommendations` with `{ "query": "laptop for Java development under 1 lakh", "storeId": "ST-DEL-01", "limit": 3 }`.
+No login needed; send the token when there is one and the customer's preferred store is used
+for stock if `storeId` is left out. This is the endpoint for the storefront's AI chat box.
+
+Response `data`:
+
+- `interpretedRequirement` — one sentence saying what was understood. Show it above the results.
+- `recommendations[]` — `productId`, `name`, `brand`, `category`, `price`, `mrp`, `rating`,
+  `image`, `reason` (why this product; show it on the card) and
+  `availability { status, storeId, storeName, quantityAvailable }`.
+- `clarifyingQuestion` — a follow-up question, or `null`. When `recommendations` is empty this
+  is the whole answer: show it as the assistant's reply and send the customer's next message
+  as a new `query` (include the earlier context in the text, e.g. "laptop, budget 60000").
+- `meta.engine` — `model` or `rules`.
+
+Errors: `422` if `query` is shorter than 3 characters or `limit` is outside 1–8; `404` for an
+unknown `storeId`; `429` after 30 requests in a minute.
+
+## 13. Not available yet
+
+No backend endpoints exist yet for policy questions in the chat (returns, warranty, shipping;
+that is the separate `ai-service`), document upload, analytics, or support tickets. Keep those parts of the UI on
 mock data, or hide them, until the modules land.

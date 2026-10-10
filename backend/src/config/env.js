@@ -48,6 +48,11 @@ const env = {
 
   seedDefaultPassword: process.env.SEED_DEFAULT_PASSWORD ?? 'Passw0rd!',
 
+  // AI recommendations. Without a key the rule-based engine answers instead.
+  geminiApiKey: process.env.GEMINI_API_KEY ?? '',
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
+  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 20000),
+
   embeddingDim: Number(process.env.EMBEDDING_DIM ?? 1536),
   embeddingModel: process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small',
 

@@ -1,12 +1,13 @@
 # RetailPulse AI — backend skeleton
 
 Node + Express + PostgreSQL/PgVector base for the NovaMart hackathon use case.
-Module 1's catalog/store/inventory layer, auth (with refresh tokens), the cart and orders are
+Module 1's catalog/store/inventory layer, auth (with refresh tokens), the cart, orders and AI
+recommendations are
 **done and tested**; the schema and folder structure for Modules 2 and 3 are in place so
 the rest of the team can build in parallel without touching each other's files.
 
 ```
-Status: lint clean, 75 Jest tests and 42 smoke checks passing against a seeded database.
+Status: lint clean, 132 Jest tests and 42 smoke checks passing against a seeded database.
 ```
 
 ---
@@ -194,6 +195,43 @@ delivery:  CONFIRMED -> PACKED -> SHIPPED -> DELIVERED
 CANCELLED is allowed from any step before SHIPPED / DELIVERED
 ```
 
+### AI recommendations
+`POST /assistant/recommendations` — public; body `{ query, storeId?, limit? }` (limit 1–8,
+default 4). A signed-in customer's preferred store is used for stock when `storeId` is omitted.
+
+```jsonc
+{ "interpretedRequirement": "A laptop for software development, priced up to ₹1,00,000, with stock checked at NovaMart Connaught Place.",
+  "recommendations": [
+    { "productId": "P202", "name": "ThinkPad E14 Gen 6 (Ryzen 7, 16 GB, 512 GB)", "brand": "Lenovo",
+      "category": "Laptops", "price": 78990, "mrp": 89990, "rating": 4.3, "image": "https://…",
+      "reason": "16 GB DDR5 RAM handles an IDE, builds and containers together; rated 4.3 by 488 buyers; ₹78,990 is within your ₹1,00,000 budget; in stock at NovaMart Connaught Place.",
+      "availability": { "status": "IN_STOCK", "storeId": "ST-DEL-01", "storeName": "NovaMart Connaught Place", "quantityAvailable": 22 } } ],
+  "clarifyingQuestion": null,
+  "meta": { "engine": "rules", "model": null, "candidatesConsidered": 20, "notes": [], "traceId": "…" } }
+```
+
+How it works (`src/modules/assistant/`):
+
+1. **Intent** (`assistant.intent.js`, pure): product type, brands, budget ("under 50k",
+   "between 30000 and 50000", "around 1.5 lakh"), purpose ("for Java development") and
+   must-have features ("5G") are parsed from the text.
+2. **Candidates** (`assistant.candidates.js`): up to 24 real, active products matching that
+   intent, with stock at the chosen store. Nothing outside this list can be recommended. If the
+   budget rules out everything it is relaxed and the answer says so.
+3. **Pick and explain**: with `GEMINI_API_KEY` set, Gemini chooses from the candidates and
+   writes the reasons; its JSON is schema-validated, repaired with one retry if invalid, and
+   any product id that is not a candidate is dropped. Without a key — or if the model fails or
+   returns nothing usable — the rule-based engine (`assistant.rules.js`) ranks on specs that
+   suit the stated use, rating, stock and budget, and builds each reason from those facts.
+4. Names, prices and availability in the response always come from the database, never from
+   the model. A request too vague to search returns no products and a `clarifyingQuestion`.
+5. Every answer is written to `agent_actions` (`RECOMMENDER` / `RECOMMEND_PRODUCTS`) with the
+   request, parsed intent, chosen products, reasoning, engine and latency.
+
+`meta.engine` is `model` or `rules`. The route is rate limited to 30 requests a minute per client.
+The model path has only been tested with a scripted stand-in; no real model call has been made
+because no API key is configured.
+
 ### Response shapes
 
 Everything uses one envelope, so the frontend never has to special-case:
@@ -265,7 +303,8 @@ driver errors are translated — a unique violation becomes a 409, a missing tab
         ├── stores/
         ├── inventory/
         ├── cart/               + cart.pricing.js (pure tier/delivery rules)
-        └── orders/
+        ├── orders/
+        └── assistant/          intent parsing, candidate search, rules engine, model orchestration
 ```
 
 ### Adding a module (the pattern)
@@ -316,7 +355,6 @@ This is the table that answers "why did the agent do that?" and the one that mak
 
 | Owner | Scope | Where |
 |---|---|---|
-| | AI recommendations returning `{ interpretedRequirement, recommendations[], clarifyingQuestion }` | new `src/modules/assistant` |
 | | Module 2: ingest PDF/MD/TXT/CSV/JSON → chunk → embed → `kb_chunks`; retrieval + grounded answer with `{ answer, confidence, sources[], followUpRequired }` | new `src/modules/kb` |
 | | Module 3: inventory / promotion / order / support agents, writing to `agent_actions` | new `src/modules/agents` |
 | | React 19 + Vite frontend against these endpoints | separate `web/` folder |
