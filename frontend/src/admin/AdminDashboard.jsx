@@ -1,19 +1,22 @@
 import React from 'react';
-import AnalyticsSection from './AnalyticsSection';
-import RagSection from './RagSection';
-import InventorySection from './InventorySection';
+import DashboardPage from './DashboardPage';
+import KnowledgeBasePage from './KnowledgeBasePage';
+import InventoryPage from './InventoryPage';
 
-export default function AdminDashboard({ onTriggerToast }) {
+export default function AdminDashboard({ activeNav, onTriggerToast }) {
   return (
-    <div className="admin-dashboard-view">
-      {/* 1. Store Analytics & Intelligence */}
-      <AnalyticsSection onTriggerRestockToast={onTriggerToast} />
+    <div className="admin-page-router">
+      {activeNav === 'dashboard' && (
+        <DashboardPage onTriggerToast={onTriggerToast} />
+      )}
 
-      {/* 2. RAG Knowledge Base & Document Index */}
-      <RagSection onTriggerToast={onTriggerToast} />
+      {activeNav === 'knowledge-base' && (
+        <KnowledgeBasePage onTriggerToast={onTriggerToast} />
+      )}
 
-      {/* 3. Live Inventory Overview */}
-      <InventorySection onTriggerToast={onTriggerToast} />
+      {activeNav === 'inventory' && (
+        <InventoryPage onTriggerToast={onTriggerToast} />
+      )}
     </div>
   );
 }

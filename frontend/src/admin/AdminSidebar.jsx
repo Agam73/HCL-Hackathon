@@ -43,10 +43,12 @@ export default function AdminSidebar({ activeNav, setActiveNav }) {
                   type="button"
                   className={`nav-button ${isActive ? 'active' : ''}`}
                   onClick={() => {
-                    if (setActiveNav) setActiveNav(item.id);
-                    const elem = document.getElementById(item.id);
-                    if (elem) {
-                      elem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    if (setActiveNav) {
+                      setActiveNav(item.id);
+                    }
+                    const scrollArea = document.querySelector('.main-content-scroll');
+                    if (scrollArea) {
+                      scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
                     }
                   }}
                 >

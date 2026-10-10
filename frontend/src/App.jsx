@@ -41,7 +41,7 @@ export default function App() {
         {/* Admin Dashboard Page */}
         <main className="main-content-scroll">
           <div className="content-container">
-            <AdminDashboard onTriggerToast={addToast} />
+            <AdminDashboard activeNav={activeNav} onTriggerToast={addToast} />
           </div>
         </main>
       </div>
