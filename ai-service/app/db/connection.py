@@ -16,9 +16,14 @@ def create_pool(settings: Settings) -> ConnectionPool:
 
     return ConnectionPool(
         conninfo=settings.database_url,
-        min_size=1,
-        max_size=10,
-        kwargs={"autocommit": False},
+        min_size=settings.database_pool_min_size,
+        max_size=settings.database_pool_max_size,
+        kwargs={
+            "autocommit": False,
+            "connect_timeout": settings.database_connect_timeout,
+            "prepare_threshold": None,
+            "sslmode": settings.database_sslmode,
+        },
         configure=configure,
         open=True,
     )

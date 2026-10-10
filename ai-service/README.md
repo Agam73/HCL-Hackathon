@@ -38,7 +38,7 @@ See [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) for the Express contract.
 | --- | --- |
 | `mock` | Default. No API key. Embeddings are lexical-hash vectors so overlapping words retrieve. Chat returns contract-shaped JSON. Use for tests and first boot. **Not** neural semantic search. |
 | `openai` | OpenAI or any OpenAI-compatible `/v1` server. Set `MODEL_API_KEY` and optionally `MODEL_BASE_URL` (Groq, Together, LM Studio, Ollama). Use `text-embedding-3-small` (1536 dims) unless you change `EMBEDDING_DIMENSIONS` **and** re-run migrations / re-ingest. |
-| `gemini` | Google Gemini native REST API. Set `MODEL_API_KEY`, use `gemini-2.5-flash` for chat and `gemini-embedding-001` for embeddings. The service requests the configured `EMBEDDING_DIMENSIONS` (1536 by default). |
+| `gemini` | Google Gemini native REST API. Set `MODEL_API_KEY`, use `gemini-3.8-flash` for chat and `gemini-embedding-001` for embeddings. The service requests the configured `EMBEDDING_DIMENSIONS` (1536 by default). |
 
 Chat and embedding providers can differ (`SplitGateway`), but mixing mock embeddings with a real chat model produces weak retrieval.
 For Gemini, keep the API key only in `ai-service/.env`; it is never sent to the frontend or stored in PostgreSQL.
@@ -84,7 +84,25 @@ cd ai-service
 python -m app.db.migrate
 ```
 
-If you install PostgreSQL yourself, enable pgvector, create database `retailpulse`, and set `DATABASE_URL` in `.env`.
+For Supabase, open **Project Settings → Database → Connect**, copy the
+PostgreSQL connection string, URL-encode any special characters in the
+password, and put it in `DATABASE_URL` in `.env`. Use the direct connection
+for migrations when available, or the session pooler connection for a hosted
+runtime. Keep `sslmode=require` in the URL. Supabase supports the `vector`
+extension; enable it in **Database → Extensions** if it is not already enabled.
+
+Example shape (do not copy the credentials):
+
+```env
+DATABASE_URL=postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require
+DATABASE_SSLMODE=require
+DATABASE_CONNECT_TIMEOUT=10
+DATABASE_POOL_MIN_SIZE=1
+DATABASE_POOL_MAX_SIZE=5
+```
+
+The service disables psycopg prepared statements so it also works with
+Supabase's session pooler/PgBouncer.
 
 ## Run the API
 

@@ -15,6 +15,10 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://retailpulse:retailpulse@127.0.0.1:5432/retailpulse"
     ai_service_api_key: str = "dev-ai-service-key"
+    database_sslmode: str = "prefer"
+    database_connect_timeout: int = 10
+    database_pool_min_size: int = 1
+    database_pool_max_size: int = 10
 
     chat_model_provider: str = "mock"
     chat_model_name: str = "mock-chat"
