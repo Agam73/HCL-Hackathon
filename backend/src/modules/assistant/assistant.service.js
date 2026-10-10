@@ -1,7 +1,7 @@
 import { query, queryOne } from '../../db/pool.js';
 import env from '../../config/env.js';
 import ApiError from '../../utils/ApiError.js';
-import { generateJson, isLlmConfigured } from '../../llm/gemini.js';
+import { generateJson, getLastModelUsed, isLlmConfigured } from '../../llm/gemini.js';
 import { parseIntent, describeIntent } from './assistant.intent.js';
 import { findCandidates } from './assistant.candidates.js';
 import { recommendByRules } from './assistant.rules.js';
@@ -15,6 +15,7 @@ Rules:
 - Use each candidate's "id" exactly as written. Never invent a product or an id.
 - Every reason must be specific to that product and grounded in its listed facts
   (specifications, price, rating, availability). Do not state facts that are not listed.
+- Do not fill the list with colour or storage variants of one model when different models fit.
 - Prefer products that are in stock. If you recommend one that is not, say so in the reason.
 - Respect the shopper's budget. Prices are in Indian rupees.
 - If the request is too vague to choose well, return an empty recommendations list
@@ -210,7 +211,12 @@ export async function recommend(
     clarifyingQuestion: result.clarifyingQuestion ?? null,
     meta: {
       engine,
-      model: engine === 'model' ? env.geminiModel : null,
+      model:
+        engine === 'model'
+          ? complete === generateJson
+            ? getLastModelUsed()
+            : env.geminiModel
+          : null,
       candidatesConsidered: candidates.length,
       store: store ? { id: store.id, name: store.name } : null,
       notes,

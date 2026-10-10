@@ -5,7 +5,8 @@ import validate from '../../middleware/validate.js';
 import { optionalAuth } from '../../middleware/auth.js';
 import { ok } from '../../utils/response.js';
 import { recommend } from './assistant.service.js';
-import { recommendBody } from './assistant.schema.js';
+import { recommendBody, chatBody } from './assistant.schema.js';
+import { chat } from './assistant.chat.js';
 
 const router = Router();
 
@@ -33,6 +34,23 @@ router.post(
   validate({ body: recommendBody }),
   asyncHandler(async (req, res) =>
     ok(res, await recommend(req.body, { user: req.user ?? null, traceId: req.traceId }))
+  )
+);
+
+/**
+ * POST /assistant/chat { message, storeId?, limit? }
+ * Policy questions (returns, warranty, delivery, membership, manuals) are answered from the
+ * knowledge base with citations; shopping requests get product recommendations.
+ * -> { type: 'policy', answer, confidence, sources[], followUpRequired }
+ *  | { type: 'products', interpretedRequirement, recommendations[], clarifyingQuestion, meta }
+ */
+router.post(
+  '/chat',
+  aiLimiter,
+  optionalAuth,
+  validate({ body: chatBody }),
+  asyncHandler(async (req, res) =>
+    ok(res, await chat(req.body, { user: req.user ?? null, traceId: req.traceId }))
   )
 );
 

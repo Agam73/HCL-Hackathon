@@ -50,8 +50,15 @@ const env = {
 
   // AI recommendations. Without a key the rule-based engine answers instead.
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
-  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
-  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 20000),
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.5-flash',
+  // Tried once if the main model is overloaded, times out or has been retired.
+  geminiFallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-flash-lite-latest',
+  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 12000),
+
+  // RAG microservice (ai-service/): answers policy questions with citations.
+  aiServiceUrl: (process.env.AI_SERVICE_URL ?? 'http://localhost:8000').replace(/\/$/, ''),
+  aiServiceApiKey: process.env.AI_SERVICE_API_KEY ?? 'dev-ai-service-key',
+  aiServiceTimeoutMs: Number(process.env.AI_SERVICE_TIMEOUT_MS ?? 45000),
 
   embeddingDim: Number(process.env.EMBEDDING_DIM ?? 1536),
   embeddingModel: process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small',

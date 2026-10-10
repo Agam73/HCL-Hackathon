@@ -9,6 +9,7 @@ import {
 
 const realFetch = globalThis.fetch;
 const realKey = env.geminiApiKey;
+const realModels = [env.geminiModel, env.geminiFallbackModel];
 const respond = (status, body) => ({ ok: status < 400, status, json: async () => body });
 
 beforeEach(() => {
@@ -19,6 +20,7 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = realFetch;
   env.geminiApiKey = realKey;
+  [env.geminiModel, env.geminiFallbackModel] = realModels;
   resetModelSuspension();
   jest.restoreAllMocks();
 });
@@ -65,6 +67,37 @@ describe('generateJson', () => {
 
     globalThis.fetch = async () => respond(200, { candidates: [] });
     await expect(generateJson({ system: 'S', user: 'U' })).rejects.toThrow(/empty answer/);
+  });
+
+  test('an overloaded or retired main model falls over to the fallback model once', async () => {
+    env.geminiModel = 'main-model';
+    env.geminiFallbackModel = 'backup-model';
+    for (const status of [503, 404, 429]) {
+      const asked = [];
+      globalThis.fetch = async (url) => {
+        asked.push(url.split('/models/')[1].split(':')[0]);
+        return asked.length === 1
+          ? respond(status, { error: { message: 'unavailable' } })
+          : respond(200, {
+              modelVersion: 'backup-model-001',
+              candidates: [{ content: { parts: [{ text: '{}' }] } }],
+            });
+      };
+      expect(await generateJson({ system: 'S', user: 'U' })).toBe('{}');
+      expect(asked).toEqual(['main-model', 'backup-model']);
+    }
+  });
+
+  test('if both models fail it stops after two attempts', async () => {
+    env.geminiModel = 'main-model';
+    env.geminiFallbackModel = 'backup-model';
+    let attempts = 0;
+    globalThis.fetch = async () => {
+      attempts += 1;
+      return respond(503, {});
+    };
+    await expect(generateJson({ system: 'S', user: 'U' })).rejects.toBeInstanceOf(LlmError);
+    expect(attempts).toBe(2);
   });
 
   test('without a key it refuses before making any request', async () => {

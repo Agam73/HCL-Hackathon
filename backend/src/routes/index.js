@@ -83,6 +83,7 @@ router.get('/', (req, res) =>
       'PATCH  /orders/:orderRef/status                  (STORE_MANAGER own store | ADMIN)',
       'GET    /stores/:storeId/orders                   (STORE_MANAGER own store | ADMIN)',
       'POST   /assistant/recommendations                (public; personalised when logged in)',
+      'POST   /assistant/chat                           (public; product picks or policy answers)',
     ],
   })
 );

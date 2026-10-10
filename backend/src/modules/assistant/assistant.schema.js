@@ -10,6 +10,13 @@ export const recommendBody = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_RECOMMENDATIONS).default(4),
 });
 
+/** POST /assistant/chat - one message from the chat box. */
+export const chatBody = z.object({
+  message: z.string().trim().min(3, 'Tell me a little more').max(500),
+  storeId: z.string().trim().min(1).max(64).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_RECOMMENDATIONS).default(3),
+});
+
 /**
  * What the model must return. Anything else is rejected and the model is
  * asked once to repair it. Product names, prices and stock are NOT taken
