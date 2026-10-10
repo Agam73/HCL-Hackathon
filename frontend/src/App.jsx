@@ -6,6 +6,7 @@ import './App.css';
 import AdminLayout from './admin/AdminLayout';
 import StoreManagerDashboard from './store-manager/StoreManagerDashboard';
 import CustomerStorefront from './customer/CustomerStorefront';
+import LandingPage from './landing/LandingPage';
 import ToastContainer from './shared/ToastContainer';
 
 export default function App() {
@@ -25,10 +26,13 @@ export default function App() {
         {/* 1. Customer Shopping Page at '/' */}
         <Route path="/" element={<CustomerStorefront onTriggerToast={addToast} />} />
 
-        {/* 2. Store Manager at '/storemanager' */}
+        {/* 2. Public Marketing Landing Page at '/landing' */}
+        <Route path="/landing" element={<LandingPage onTriggerToast={addToast} />} />
+
+        {/* 3. Store Manager at '/storemanager' */}
         <Route path="/storemanager" element={<StoreManagerDashboard onTriggerToast={addToast} />} />
 
-        {/* 3. Admin Portal at '/admin' and its dedicated sub-pages */}
+        {/* 4. Admin Portal at '/admin' and its dedicated sub-pages */}
         <Route path="/admin/*" element={<AdminLayout onTriggerToast={addToast} />} />
 
         {/* Fallback to Customer Storefront */}
