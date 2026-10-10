@@ -1,0 +1,17 @@
+id,name,slug,parent_id,sort_order
+C01,Electronics,electronics,,1
+C0101,Mobiles,mobiles,C01,1
+C0102,Laptops,laptops,C01,2
+C0103,Televisions,televisions,C01,3
+C0104,Audio,audio,C01,4
+C02,Home Appliances,home-appliances,,2
+C0201,Refrigerators,refrigerators,C02,1
+C0202,Washing Machines,washing-machines,C02,2
+C0203,Air Conditioners,air-conditioners,C02,3
+C0204,Kitchen Appliances,kitchen-appliances,C02,4
+C03,Fashion,fashion,,3
+C0301,Footwear,footwear,C03,1
+C0302,Apparel,apparel,C03,2
+C04,Groceries,groceries,,4
+C0401,Packaged Foods,packaged-foods,C04,1
+C0402,Beverages,beverages,C04,2

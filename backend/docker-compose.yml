@@ -1,0 +1,55 @@
+services:
+  db:
+    # Postgres 16 with the pgvector extension pre-built (needed for Module 2 RAG)
+    image: pgvector/pgvector:pg16
+    container_name: retailpulse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: retailpulse
+      POSTGRES_PASSWORD: retailpulse
+      POSTGRES_DB: retailpulse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retailpulse -d retailpulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Optional: run the API in Docker too -> `docker compose --profile app up -d`
+  # Day-to-day you probably want `docker compose up -d db` + `npm run dev` on the host.
+  api:
+    profiles: ["app"]
+    build: .
+    container_name: retailpulse-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      API_PREFIX: /api/v1
+      DATABASE_URL: postgresql://retailpulse:retailpulse@db:5432/retailpulse
+      JWT_SECRET: dev-only-change-me-7f3a9c1e5b2d4086
+      JWT_EXPIRES_IN: 12h
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      SEED_DEFAULT_PASSWORD: Passw0rd!
+    ports:
+      - "8080:8080"
+
+  # Optional lightweight DB UI -> `docker compose --profile tools up -d adminer`
+  adminer:
+    profiles: ["tools"]
+    image: adminer:4
+    container_name: retailpulse-adminer
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8081:8080"
+
+volumes:
+  pgdata:

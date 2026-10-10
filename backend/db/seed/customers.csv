@@ -1,0 +1,13 @@
+email,password,full_name,phone,role,membership_tier,city,country,preferred_store_id,managed_store_id,preferences
+admin@novamart.com,,Aarav Mehta,+91-98100-00001,ADMIN,PLATINUM,New Delhi,IN,ST-DEL-01,,{}
+manager.del01@novamart.com,,Priya Sharma,+91-98100-00002,STORE_MANAGER,STANDARD,New Delhi,IN,ST-DEL-01,ST-DEL-01,{}
+manager.mum01@novamart.com,,Rohan Desai,+91-98200-00003,STORE_MANAGER,STANDARD,Mumbai,IN,ST-MUM-01,ST-MUM-01,{}
+manager.blr01@novamart.com,,Ananya Rao,+91-98450-00004,STORE_MANAGER,STANDARD,Bengaluru,IN,ST-BLR-01,ST-BLR-01,{}
+ishaan.gupta@example.com,,Ishaan Gupta,+91-99100-10001,CUSTOMER,PLATINUM,New Delhi,IN,ST-DEL-01,,"{""categories"":[""C0102"",""C0101""],""brands"":[""B03"",""B02""],""budgetMax"":180000}"
+meera.iyer@example.com,,Meera Iyer,+91-99400-10002,CUSTOMER,GOLD,Chennai,IN,ST-CHN-01,,"{""categories"":[""C0201"",""C0204""],""brands"":[""B05"",""B12""],""budgetMax"":60000}"
+kabir.singh@example.com,,Kabir Singh,+91-98700-10003,CUSTOMER,GOLD,Gurugram,IN,ST-GGN-01,,"{""categories"":[""C0104"",""C0103""],""brands"":[""B06"",""B13""],""budgetMax"":40000}"
+diya.nair@example.com,,Diya Nair,+91-98450-10004,CUSTOMER,SILVER,Bengaluru,IN,ST-BLR-01,,"{""categories"":[""C0302"",""C0301""],""brands"":[""B08"",""B15""],""budgetMax"":15000}"
+arjun.patel@example.com,,Arjun Patel,+91-98200-10005,CUSTOMER,SILVER,Mumbai,IN,ST-MUM-02,,"{""categories"":[""C0101""],""brands"":[""B10"",""B01""],""budgetMax"":50000}"
+sara.khan@example.com,,Sara Khan,+91-99000-10006,CUSTOMER,STANDARD,Hyderabad,IN,ST-HYD-01,,"{""categories"":[""C0401"",""C0402""],""brands"":[""B14""],""budgetMax"":5000}"
+vikram.reddy@example.com,,Vikram Reddy,+91-99000-10007,CUSTOMER,STANDARD,Hyderabad,IN,ST-HYD-01,,"{""categories"":[""C0203"",""C0202""],""brands"":[""B11"",""B07""],""budgetMax"":45000}"
+neha.joshi@example.com,,Neha Joshi,+91-98900-10008,CUSTOMER,STANDARD,Mumbai,IN,ST-MUM-01,,"{""categories"":[""C0102""],""brands"":[""B04"",""B09""],""budgetMax"":85000}"

@@ -1,0 +1,11 @@
+id,name,type,address_line,city,state,country,postal_code,latitude,longitude,phone,opens_at,closes_at
+ST-DEL-01,NovaMart Connaught Place,STORE,"N-Block, Connaught Place",New Delhi,Delhi,IN,110001,28.631451,77.216675,+91-11-4100-1001,10:00,22:00
+ST-DEL-02,NovaMart Rohini,STORE,"Sector 10, Rohini",New Delhi,Delhi,IN,110085,28.732,77.113,+91-11-4100-1002,10:00,22:00
+ST-GGN-01,NovaMart Cyber Hub,STORE,"DLF Cyber City, Phase 2",Gurugram,Haryana,IN,122002,28.495,77.089,+91-124-410-1003,11:00,23:00
+ST-MUM-01,NovaMart Andheri West,STORE,"Link Road, Andheri West",Mumbai,Maharashtra,IN,400053,19.136,72.826,+91-22-4100-2001,10:00,22:00
+ST-MUM-02,NovaMart Powai,STORE,"Hiranandani Gardens, Powai",Mumbai,Maharashtra,IN,400076,19.117,72.906,+91-22-4100-2002,10:00,22:00
+ST-BLR-01,NovaMart Koramangala,STORE,"80 Feet Road, 4th Block",Bengaluru,Karnataka,IN,560034,12.934,77.626,+91-80-4100-3001,10:00,22:30
+ST-HYD-01,NovaMart Gachibowli,STORE,"Financial District, Gachibowli",Hyderabad,Telangana,IN,500032,17.441,78.348,+91-40-4100-4001,10:00,22:00
+ST-CHN-01,NovaMart T Nagar,STORE,"Usman Road, T Nagar",Chennai,Tamil Nadu,IN,600017,13.04,80.233,+91-44-4100-5001,10:00,21:30
+WH-DEL-01,NovaMart North Warehouse,WAREHOUSE,Narela Industrial Area,New Delhi,Delhi,IN,110040,28.846,77.093,+91-11-4100-9001,,
+WH-MUM-01,NovaMart West Warehouse,WAREHOUSE,Bhiwandi Logistics Park,Thane,Maharashtra,IN,421302,19.296,73.063,+91-22-4100-9002,,
