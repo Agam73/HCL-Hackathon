@@ -9,6 +9,7 @@ import StoreManagerDashboardClassic from './store-manager/StoreManagerDashboardC
 import CustomerStorefront from './customer/CustomerStorefront';
 import CustomerStorefrontClassic from './customer/CustomerStorefrontClassic';
 import LandingPage from './landing/LandingPage';
+import AuthPage from './auth/AuthPage';
 import ToastContainer from './shared/ToastContainer';
 
 export default function App() {
@@ -29,14 +30,18 @@ export default function App() {
         <Route path="/" element={<CustomerStorefront onTriggerToast={addToast} />} />
         <Route path="/customer-classic" element={<CustomerStorefrontClassic onTriggerToast={addToast} />} />
 
-        {/* 2. Public Marketing Landing Page at '/landing' */}
+        {/* 2. Authentication: Login & Register */}
+        <Route path="/login" element={<AuthPage mode="login" onTriggerToast={addToast} />} />
+        <Route path="/register" element={<AuthPage mode="register" onTriggerToast={addToast} />} />
+
+        {/* 3. Public Marketing Landing Page at '/landing' */}
         <Route path="/landing" element={<LandingPage onTriggerToast={addToast} />} />
 
-        {/* 3. Store Manager at '/storemanager' */}
+        {/* 4. Store Manager at '/storemanager' */}
         <Route path="/storemanager" element={<StoreManagerDashboard onTriggerToast={addToast} />} />
         <Route path="/storemanager-classic" element={<StoreManagerDashboardClassic onTriggerToast={addToast} />} />
 
-        {/* 4. Admin Portal at '/admin' and its dedicated sub-pages */}
+        {/* 5. Admin Portal at '/admin' and its dedicated sub-pages */}
         <Route path="/admin/*" element={<AdminLayout onTriggerToast={addToast} />} />
 
         {/* Fallback to Customer Storefront */}

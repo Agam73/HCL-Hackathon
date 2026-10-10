@@ -1,33 +1,61 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
   ShoppingCart,
+  ShoppingBag,
   MapPin,
   Sparkles,
   TrendingUp,
   Zap,
   ShieldCheck,
   Snowflake,
-  QrCode,
+  Volume2,
   ChevronDown,
+  ChevronLeft,
   X,
   Check,
   Send,
-  Bot,
-  HelpCircle,
   LayoutGrid,
   CheckCircle2,
-  Package,
+  Truck,
   Tag,
   Store,
+  Home,
   SlidersHorizontal,
-  ArrowRight
+  ArrowRight,
+  User,
+  Headphones,
+  LogIn,
+  LogOut,
+  UserPlus
 } from 'lucide-react';
 import './CustomerStorefront.css';
 
 export default function CustomerStorefront({ onTriggerToast }) {
   const navigate = useNavigate();
+
+  // Current Authenticated User state
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('auth_user');
+      return saved ? JSON.parse(saved) : { fullName: 'Priya Sharma', membershipTier: 'GOLD', email: 'priya.sharma@example.com' };
+    } catch {
+      return { fullName: 'Priya Sharma', membershipTier: 'GOLD', email: 'priya.sharma@example.com' };
+    }
+  });
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  useEffect(() => {
+    const handleAuthChange = () => {
+      try {
+        const saved = localStorage.getItem('auth_user');
+        if (saved) setCurrentUser(JSON.parse(saved));
+      } catch {}
+    };
+    window.addEventListener('auth-state-changed', handleAuthChange);
+    return () => window.removeEventListener('auth-state-changed', handleAuthChange);
+  }, []);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -410,20 +438,72 @@ export default function CustomerStorefront({ onTriggerToast }) {
             onClick={() => setIsCartOpen(true)}
             title="Open Shopping Cart"
           >
-            <ShoppingCart size={19} />
+            <ShoppingBag size={19} />
             <span className="cart-badge-count">{totalItemCount}</span>
           </button>
 
-          <div className="user-profile-pill" onClick={() => setIsAiModalOpen(true)}>
-            <div className="user-avatar-circle">
-              <span style={{ fontSize: '12px', fontWeight: '800' }}>PS</span>
+          <div className="user-profile-wrapper">
+            <div className="user-profile-pill" onClick={() => setShowUserMenu(!showUserMenu)}>
+              <div className="user-avatar-circle">
+                <User size={16} />
+              </div>
+              <div className="user-info-text">
+                <span className="user-name">{currentUser.fullName || 'Priya Sharma'}</span>
+                <span className="user-tier">
+                  {currentUser.membershipTier ? `${currentUser.membershipTier.charAt(0) + currentUser.membershipTier.slice(1).toLowerCase()} Member` : 'Gold Member'} <ChevronDown size={10} />
+                </span>
+              </div>
             </div>
-            <div className="user-info-text">
-              <span className="user-name">Priya Sharma</span>
-              <span className="user-tier">
-                Gold Member <ChevronDown size={10} />
-              </span>
-            </div>
+
+            {showUserMenu && (
+              <div className="user-profile-menu-dropdown">
+                <div className="user-menu-header">
+                  <div className="user-menu-name">{currentUser.fullName || 'Priya Sharma'}</div>
+                  <div className="user-menu-email">{currentUser.email || 'customer@novamart.com'}</div>
+                  <div className="user-menu-badge">
+                    {currentUser.membershipTier || 'GOLD'} PRIVILEGE ACTIVE
+                  </div>
+                </div>
+                <div className="user-menu-divider" />
+                <button
+                  type="button"
+                  className="user-menu-item"
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    navigate('/login');
+                  }}
+                >
+                  <LogIn size={15} />
+                  <span>Switch Account / Sign In</span>
+                </button>
+                <button
+                  type="button"
+                  className="user-menu-item"
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    navigate('/register');
+                  }}
+                >
+                  <UserPlus size={15} />
+                  <span>Register New Account</span>
+                </button>
+                <div className="user-menu-divider" />
+                <button
+                  type="button"
+                  className="user-menu-item danger"
+                  onClick={() => {
+                    localStorage.removeItem('auth_user');
+                    localStorage.removeItem('auth_token');
+                    setCurrentUser({ fullName: 'Guest Customer', membershipTier: 'STANDARD', email: 'guest@novamart.com' });
+                    setShowUserMenu(false);
+                    if (onTriggerToast) onTriggerToast('Signed out of NovaMart session.');
+                  }}
+                >
+                  <LogOut size={15} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -443,7 +523,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   className={`sidebar-nav-item ${activeNav === 'home' ? 'active' : ''}`}
                   onClick={() => setActiveNav('home')}
                 >
-                  <Store size={16} />
+                  <Home size={16} />
                   <span>Home</span>
                 </button>
               </li>
@@ -473,7 +553,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   className={`sidebar-nav-item ${activeNav === 'orders' ? 'active' : ''}`}
                   onClick={() => setActiveNav('orders')}
                 >
-                  <Package size={16} />
+                  <Truck size={16} />
                   <span>My Orders</span>
                 </button>
               </li>
@@ -497,7 +577,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
               className="sidebar-nav-item"
               onClick={() => setIsAiModalOpen(true)}
             >
-              <HelpCircle size={16} />
+              <Headphones size={16} />
               <span>Help & Support</span>
             </button>
 
@@ -621,7 +701,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
               </div>
               <div className="promo-stat-card">
                 <span className="stat-label">Instant Member Off</span>
-                <span className="stat-value">₹350</span>
+                <span className="stat-value stat-value-cyan">₹350</span>
                 <span className="stat-footer" style={{ color: '#E2E8F0' }}>
                   On cart &gt; ₹1,498
                 </span>
@@ -647,25 +727,37 @@ export default function CustomerStorefront({ onTriggerToast }) {
               </div>
             </div>
 
-            <div className="categories-grid">
-              {categories.map((cat) => (
-                <div
-                  key={cat.id}
-                  className="category-card"
-                  onClick={() => {
-                    if (onTriggerToast) onTriggerToast(`Browsing category: ${cat.name}`);
-                  }}
-                >
-                  <div className="category-image-wrap">
-                    <img src={cat.image} alt={cat.name} className="category-img" />
-                    <span className={`category-badge-pill ${cat.badgeClass}`}>{cat.badge}</span>
+            <div className="categories-grid-wrapper">
+              <div className="categories-grid">
+                {categories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className="category-card"
+                    onClick={() => {
+                      if (onTriggerToast) onTriggerToast(`Browsing category: ${cat.name}`);
+                    }}
+                  >
+                    <div className="category-image-wrap">
+                      <img src={cat.image} alt={cat.name} className="category-img" />
+                      <span className={`category-badge-pill ${cat.badgeClass}`}>{cat.badge}</span>
+                    </div>
+                    <div className="category-info">
+                      <h4 className="category-name">{cat.name}</h4>
+                      <span className="category-count">{cat.count}</span>
+                    </div>
                   </div>
-                  <div className="category-info">
-                    <h4 className="category-name">{cat.name}</h4>
-                    <span className="category-count">{cat.count}</span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+
+              {/* Floating Ask Policy AI button docked at right side */}
+              <button
+                type="button"
+                className="ask-policy-ai-docked-btn"
+                onClick={() => setIsAiModalOpen(true)}
+              >
+                <ChevronLeft size={16} />
+                <span>Ask Policy AI</span>
+              </button>
             </div>
           </section>
 
@@ -681,6 +773,16 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   Most ordered by Indiranagar residents in the last 48 hours
                 </p>
               </div>
+
+              {/* Cart Pill Button aligned to right of section header */}
+              <button
+                type="button"
+                className="trending-cart-pill-btn"
+                onClick={() => setIsCartOpen(true)}
+              >
+                <ShoppingCart size={16} />
+                <span>Cart (3 Items • ₹2,450)</span>
+              </button>
             </div>
 
             <div className="products-grid-4">
@@ -762,7 +864,12 @@ export default function CustomerStorefront({ onTriggerToast }) {
                       <span>●</span> {rec.stock}
                     </div>
                     <div className="rec-footer-row">
-                      <span className="rec-price">₹{rec.price.toLocaleString('en-IN')}</span>
+                      <div className="rec-price-stack">
+                        <span className="rec-price">₹{rec.price.toLocaleString('en-IN')}</span>
+                        {rec.originalPrice && (
+                          <span className="rec-price-original">₹{rec.originalPrice.toLocaleString('en-IN')}</span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         className="rec-btn-add"
@@ -811,7 +918,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
 
             <div className="trust-item">
               <div className="trust-icon-box">
-                <QrCode size={20} />
+                <Volume2 size={20} />
               </div>
               <div>
                 <h4 className="trust-title">Express Self-Pickup Bay</h4>
@@ -820,29 +927,6 @@ export default function CustomerStorefront({ onTriggerToast }) {
             </div>
           </div>
         </main>
-      </div>
-
-      {/* --------------------------------------------------------------------
-          FLOATING ACTIONS (Ask Policy AI & Active Cart)
-          -------------------------------------------------------------------- */}
-      <div className="floating-actions-container">
-        <button
-          type="button"
-          className="floating-policy-pill"
-          onClick={() => setIsAiModalOpen(true)}
-        >
-          <Bot size={17} />
-          <span>Ask Policy AI</span>
-        </button>
-
-        <button
-          type="button"
-          className="floating-cart-pill"
-          onClick={() => setIsCartOpen(true)}
-        >
-          <ShoppingCart size={18} />
-          <span>Cart ({totalItemCount} Items • ₹{totalAmount.toLocaleString('en-IN')})</span>
-        </button>
       </div>
 
       {/* --------------------------------------------------------------------

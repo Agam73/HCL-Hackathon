@@ -276,6 +276,87 @@
   justify-content: center;
 }
 
+.user-profile-wrapper {
+  position: relative;
+}
+
+.user-profile-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 250px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  padding: 10px;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  animation: auth-fade-in 0.15s ease;
+}
+
+.user-menu-header {
+  padding: 8px 10px;
+}
+
+.user-menu-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #0F172A;
+}
+
+.user-menu-email {
+  font-size: 11px;
+  color: #64748B;
+  margin-top: 1px;
+}
+
+.user-menu-badge {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  background: #EFF6FF;
+  color: #1D4ED8;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+}
+
+.user-menu-divider {
+  height: 1px;
+  background: #F1F5F9;
+  margin: 6px 0;
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.user-menu-item:hover {
+  background: #F8FAFC;
+  color: #1D4ED8;
+}
+
+.user-menu-item.danger:hover {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+
 /* --------------------------------------------------------------------------
    Body Content Container
    -------------------------------------------------------------------------- */
@@ -403,8 +484,8 @@
   color: #1E293B;
   font-size: 12px;
   font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 7px;
+  padding: 5px 14px;
+  border-radius: 999px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -792,6 +873,15 @@
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 5px;
+  text-align: center;
+}
+
+.aisle-chip.multiline {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.15;
+  font-size: 10px;
+  padding: 2px 8px;
 }
 
 .aisle-chip.blue {
@@ -819,6 +909,10 @@
   color: #0F172A;
 }
 
+.stock-units-num.red {
+  color: #DC2626;
+}
+
 .stock-status-label {
   font-size: 11px;
   font-weight: 600;
@@ -837,7 +931,7 @@
 }
 
 .stock-status-label.low {
-  color: #D97706;
+  color: #64748B;
 }
 
 .stock-status-label.depleted {
@@ -888,11 +982,24 @@
 .status-pill-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
+  gap: 6px;
+  font-size: 11px;
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 999px;
+  line-height: 1.15;
+}
+
+.status-dot {
+  font-size: 8px;
+}
+
+.status-stacked-text {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.05;
+  font-size: 9.5px;
+  text-align: left;
 }
 
 .status-pill-badge.in-stock {
@@ -1011,7 +1118,7 @@
    -------------------------------------------------------------------------- */
 .floating-ask-policy-btn {
   position: fixed;
-  bottom: 24px;
+  bottom: 110px;
   right: 28px;
   background: #1D4ED8;
   color: #FFFFFF;

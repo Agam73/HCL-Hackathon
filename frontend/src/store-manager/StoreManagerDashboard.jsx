@@ -12,6 +12,10 @@ import {
   RefreshCw,
   ShieldCheck,
   BarChart3,
+  ScanBarcode,
+  Building2,
+  ArrowLeftRight,
+  SprayCan,
   Plus,
   LayoutGrid,
   AlertTriangle,
@@ -29,12 +33,26 @@ import {
   Edit2,
   MoreVertical,
   X,
-  Send
+  Send,
+  LogIn,
+  LogOut,
+  UserPlus
 } from 'lucide-react';
 import './StoreManagerDashboard.css';
 
 export default function StoreManagerDashboard({ onTriggerToast }) {
   const navigate = useNavigate();
+
+  // Current Authenticated User state
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('auth_user');
+      return saved ? JSON.parse(saved) : { fullName: 'Alex Morgan', role: 'STORE_MANAGER', email: 'alex.morgan@novamart.com' };
+    } catch {
+      return { fullName: 'Alex Morgan', role: 'STORE_MANAGER', email: 'alex.morgan@novamart.com' };
+    }
+  });
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Active navigation states
   const [activeSidebarNav, setActiveSidebarNav] = useState('inventory');
@@ -170,7 +188,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
       status: 'low-stock',
       statusText: 'Low Stock',
       iconType: 'green',
-      icon: <Boxes size={18} />,
+      icon: <SprayCan size={18} />,
       actionType: 'adjust',
       secondaryAction: 'more'
     }
@@ -414,14 +432,64 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
               <span className="topbar-bell-badge" />
             </button>
 
-            <div className="topbar-user-profile" onClick={() => setShowPolicyAiModal(true)}>
-              <div className="user-text-info">
-                <div className="user-name-title">Alex Morgan</div>
-                <div className="user-role-title">Store Manager</div>
+            <div className="user-profile-wrapper">
+              <div className="topbar-user-profile" onClick={() => setShowUserMenu(!showUserMenu)}>
+                <div className="user-text-info">
+                  <div className="user-name-title">{currentUser.fullName || 'Alex Morgan'}</div>
+                  <div className="user-role-title">Store Manager</div>
+                </div>
+                <div className="user-avatar-navy">
+                  <User size={18} />
+                </div>
               </div>
-              <div className="user-avatar-navy">
-                <User size={18} />
-              </div>
+
+              {showUserMenu && (
+                <div className="user-profile-menu-dropdown">
+                  <div className="user-menu-header">
+                    <div className="user-menu-name">{currentUser.fullName || 'Alex Morgan'}</div>
+                    <div className="user-menu-email">{currentUser.email || 'manager@novamart.com'}</div>
+                    <div className="user-menu-badge">STORE MANAGER • AUTHENTICATED</div>
+                  </div>
+                  <div className="user-menu-divider" />
+                  <button
+                    type="button"
+                    className="user-menu-item"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      navigate('/login');
+                    }}
+                  >
+                    <LogIn size={15} />
+                    <span>Switch Account / Sign In</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="user-menu-item"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      navigate('/register');
+                    }}
+                  >
+                    <UserPlus size={15} />
+                    <span>Register New Account</span>
+                  </button>
+                  <div className="user-menu-divider" />
+                  <button
+                    type="button"
+                    className="user-menu-item danger"
+                    onClick={() => {
+                      localStorage.removeItem('auth_user');
+                      localStorage.removeItem('auth_token');
+                      setShowUserMenu(false);
+                      if (onTriggerToast) onTriggerToast('Signed out of Store Manager portal.');
+                      navigate('/login');
+                    }}
+                  >
+                    <LogOut size={15} />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -514,7 +582,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
           <div className="inventory-banner-card">
             <div className="banner-card-left">
               <div className="banner-icon-box">
-                <Boxes size={22} />
+                <Building2 size={20} />
               </div>
               <div>
                 <h3 className="banner-heading">Inventory Management — Store #104</h3>
@@ -532,7 +600,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                   if (onTriggerToast) onTriggerToast('Physical stock barcode audit mode ready on Handheld #3.');
                 }}
               >
-                <BarChart3 size={15} />
+                <ScanBarcode size={15} />
                 <span>Stock Count</span>
               </button>
               <button
@@ -705,16 +773,35 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
 
                     {/* Location / Aisle */}
                     <td>
-                      <span className={`aisle-chip ${item.location.includes('Chiller') ? 'blue' : ''}`}>
-                        {item.location}
-                      </span>
+                      {item.location === 'Chiller C-02' ? (
+                        <span className="aisle-chip blue multiline">
+                          <span>Chiller C-</span>
+                          <span>02</span>
+                        </span>
+                      ) : item.location === 'Floor Display 03' ? (
+                        <span className="aisle-chip multiline">
+                          <span>Floor</span>
+                          <span>Display 03</span>
+                        </span>
+                      ) : item.location === 'Bakery B-01' ? (
+                        <span className="aisle-chip multiline">
+                          <span>Bakery B-</span>
+                          <span>01</span>
+                        </span>
+                      ) : (
+                        <span className="aisle-chip">
+                          {item.location}
+                        </span>
+                      )}
                     </td>
 
                     {/* Stock Level with Progress Bar */}
                     <td>
                       <div className="stock-level-cell">
                         <div className="stock-count-header">
-                          <span className="stock-units-num">{item.units} units</span>
+                          <span className={`stock-units-num ${item.levelType === 'depleted' ? 'red' : ''}`}>
+                            {item.units} units
+                          </span>
                           <span className={`stock-status-label ${item.levelType}`}>
                             {item.levelLabel}
                           </span>
@@ -735,10 +822,28 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
 
                     {/* Status Pill Badge */}
                     <td>
-                      <span className={`status-pill-badge ${item.status}`}>
-                        <span>●</span>
-                        <span>{item.statusText}</span>
-                      </span>
+                      {item.status === 'low-stock' ? (
+                        <span className="status-pill-badge low-stock">
+                          <span className="status-dot">●</span>
+                          <span className="status-stacked-text">
+                            <span>Low</span>
+                            <span>Stock</span>
+                          </span>
+                        </span>
+                      ) : item.status === 'out-of-stock' ? (
+                        <span className="status-pill-badge out-of-stock">
+                          <span className="status-dot">●</span>
+                          <span className="status-stacked-text">
+                            <span>Out of</span>
+                            <span>Stock</span>
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="status-pill-badge in-stock">
+                          <span className="status-dot">●</span>
+                          <span>In Stock</span>
+                        </span>
+                      )}
                     </td>
 
                     {/* Actions */}
@@ -774,7 +879,7 @@ export default function StoreManagerDashboard({ onTriggerToast }) {
                             }}
                             title="Aisle Transfer"
                           >
-                            <Repeat size={14} />
+                            <ArrowLeftRight size={14} />
                           </button>
                         )}
 
