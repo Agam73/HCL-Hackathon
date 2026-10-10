@@ -20,7 +20,9 @@ from app.utils.file_validation import validate_upload
 
 logger = logging.getLogger(__name__)
 
-KNOWLEDGE_BASE_DIR = Path(__file__).resolve().parents[2] / "novamart_rag_knowledge_base"
+# The demo Markdown files live alongside the application package under
+# ai-service/novamart_rag_knowledge_base.
+KNOWLEDGE_BASE_DIR = Path(__file__).resolve().parents[1] / "novamart_rag_knowledge_base"
 
 
 @dataclass(frozen=True)

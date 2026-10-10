@@ -100,7 +100,7 @@ Health: http://127.0.0.1:8000/health
 ## Load the NovaMart demo knowledge base
 
 After PostgreSQL is running and migrations have been applied, load the fixed
-documents from `../novamart_rag_knowledge_base`:
+Markdown documents from `./novamart_rag_knowledge_base`:
 
 ```powershell
 cd ai-service
