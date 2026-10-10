@@ -55,10 +55,16 @@ def apply_migrations(database_url: str | None = None, embedding_dimensions: int 
     if not files:
         raise RuntimeError(f"No SQL migrations found in {MIGRATIONS_DIR}")
 
-    with psycopg.connect(url, autocommit=True) as conn:
+    with psycopg.connect(
+        url,
+        autocommit=True,
+        connect_timeout=settings.database_connect_timeout,
+        prepare_threshold=None,
+        sslmode=settings.database_sslmode,
+    ) as conn:
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS schema_migrations (
+            CREATE TABLE IF NOT EXISTS ai_schema_migrations (
                 filename TEXT PRIMARY KEY,
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
@@ -66,7 +72,7 @@ def apply_migrations(database_url: str | None = None, embedding_dimensions: int 
         )
         for path in files:
             already = conn.execute(
-                "SELECT 1 FROM schema_migrations WHERE filename = %s",
+                "SELECT 1 FROM ai_schema_migrations WHERE filename = %s",
                 (path.name,),
             ).fetchone()
             if already:
@@ -79,7 +85,7 @@ def apply_migrations(database_url: str | None = None, embedding_dimensions: int 
             for statement in split_sql(sql):
                 conn.execute(statement)
             conn.execute(
-                "INSERT INTO schema_migrations (filename) VALUES (%s) ON CONFLICT DO NOTHING",
+                "INSERT INTO ai_schema_migrations (filename) VALUES (%s) ON CONFLICT DO NOTHING",
                 (path.name,),
             )
 

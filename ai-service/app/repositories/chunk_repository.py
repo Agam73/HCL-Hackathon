@@ -50,15 +50,16 @@ class ChunkRepository:
             )
             for draft, embedding in zip(drafts, embeddings, strict=True)
         ]
-        self._conn.executemany(
-            """
-            INSERT INTO document_chunks (
-                document_id, chunk_index, content, embedding, section, page_number, source_locator
+        with self._conn.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO document_chunks (
+                    document_id, chunk_index, content, embedding, section, page_number, source_locator
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                rows,
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            rows,
-        )
         return len(rows)
 
     def search(
@@ -89,7 +90,7 @@ class ChunkRepository:
                 d.category,
                 d.document_type,
                 d.membership_tier,
-                1 - (c.embedding <=> %s) AS relevance_score
+                1 - (c.embedding <=> %s::vector) AS relevance_score
             FROM document_chunks c
             INNER JOIN documents d ON d.id = c.document_id
             WHERE d.ingestion_status = 'completed'
@@ -104,7 +105,7 @@ class ChunkRepository:
                     OR d.membership_tier = 'ALL'
                     OR (%s::text IS NOT NULL AND d.membership_tier = %s)
                   )
-            ORDER BY c.embedding <=> %s
+            ORDER BY c.embedding <=> %s::vector
             LIMIT %s
             """,
             (
