@@ -193,6 +193,23 @@ export default function CustomerStorefront({ onTriggerToast }) {
     };
   }, []);
 
+  // Brands - GET /brands
+  const [brands, setBrands] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/brands')
+      .then((res) => {
+        if (cancelled) return;
+        const list = Array.isArray(res) ? res : res.data ?? [];
+        if (list.length > 0) setBrands(list.slice(0, 14));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Product cards - GET /products, with stock at the chosen store
   const shorten = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
   const toCard = useCallback(
@@ -373,6 +390,21 @@ export default function CustomerStorefront({ onTriggerToast }) {
   const handleCopyVoucher = () => {
     navigator.clipboard?.writeText('NOVAFRESH');
     say('Voucher code NOVAFRESH copied.');
+  };
+
+  // Smooth scroll helper for section navigation
+  const scrollToSection = (sectionId, navKey) => {
+    if (navKey) setActiveNav(navKey);
+    if (!sectionId) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    setTimeout(() => {
+      const el = document.getElementById(sectionId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 75);
   };
 
   // POST /assistant/chat - product recommendations or policy answers with sources
@@ -562,7 +594,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <button
                   type="button"
                   className={`sidebar-nav-item ${activeNav === 'home' ? 'active' : ''}`}
-                  onClick={() => setActiveNav('home')}
+                  onClick={() => scrollToSection(null, 'home')}
                 >
                   <Home size={16} />
                   <span>Home</span>
@@ -572,7 +604,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <button
                   type="button"
                   className={`sidebar-nav-item ${activeNav === 'categories' ? 'active' : ''}`}
-                  onClick={() => setActiveNav('categories')}
+                  onClick={() => scrollToSection('categories-section', 'categories')}
                 >
                   <LayoutGrid size={16} />
                   <span>Categories</span>
@@ -582,7 +614,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <button
                   type="button"
                   className={`sidebar-nav-item ${activeNav === 'brands' ? 'active' : ''}`}
-                  onClick={() => setActiveNav('brands')}
+                  onClick={() => scrollToSection('brands-section', 'brands')}
                 >
                   <CheckCircle2 size={16} />
                   <span>Brands</span>
@@ -592,7 +624,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <button
                   type="button"
                   className={`sidebar-nav-item ${activeNav === 'orders' ? 'active' : ''}`}
-                  onClick={() => setActiveNav('orders')}
+                  onClick={() => scrollToSection('orders-section', 'orders')}
                 >
                   <Truck size={16} />
                   <span>My Orders</span>
@@ -602,7 +634,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                 <button
                   type="button"
                   className={`sidebar-nav-item ${activeNav === 'offers' ? 'active' : ''}`}
-                  onClick={() => setActiveNav('offers')}
+                  onClick={() => scrollToSection('offers-section', 'offers')}
                 >
                   <Tag size={16} />
                   <span>Offers</span>
@@ -696,7 +728,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
           </div>
 
           {/* 3. Mega Promotion Banner (Weekend Super Saver) */}
-          <div className="mega-promo-banner">
+          <div className="mega-promo-banner" id="offers-section" style={{ scrollMarginTop: '80px' }}>
             <div className="banner-left">
               <div className="banner-tag-row">
                 <span className="tag-weekend-saver">WEEKEND SUPER SAVER</span>
@@ -752,7 +784,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
 
           {/* My Orders - GET /orders, with cancel while the order is still open */}
           {activeNav === 'orders' && (
-            <section className="categories-section">
+            <section className="categories-section" id="orders-section" style={{ scrollMarginTop: '80px' }}>
               <div className="section-header-row">
                 <div>
                   <div className="section-pre-title">YOUR ACCOUNT</div>
@@ -796,7 +828,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
           )}
 
           {/* 4. Featured Categories - GET /categories */}
-          <section className="categories-section">
+          <section className="categories-section" id="categories-section" style={{ scrollMarginTop: '80px' }}>
             <div className="section-header-row">
               <div>
                 <div className="section-pre-title">{firstName.toUpperCase()}'S DEPARTMENTS</div>
@@ -808,6 +840,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   setActiveCategory(null);
                   setAppliedSearch('');
                   setSearchQuery('');
+                  scrollToSection('trending-section');
                 }}
               >
                 <span>View all products</span>
@@ -825,6 +858,7 @@ export default function CustomerStorefront({ onTriggerToast }) {
                       setAppliedSearch('');
                       setSearchQuery('');
                       setActiveCategory({ slug: cat.slug, name: cat.name });
+                      scrollToSection('trending-section');
                     }}
                   >
                     <div className="category-image-wrap">
@@ -838,21 +872,63 @@ export default function CustomerStorefront({ onTriggerToast }) {
                   </div>
                 ))}
               </div>
+            </div>
+          </section>
 
-              {/* Floating Ask Policy AI button docked at right side */}
-              <button
-                type="button"
-                className="ask-policy-ai-docked-btn"
-                onClick={() => setIsAiModalOpen(true)}
+          {/* Featured Brands - GET /brands */}
+          <section className="categories-section" id="brands-section" style={{ scrollMarginTop: '80px' }}>
+            <div className="section-header-row">
+              <div>
+                <div className="section-pre-title">TOP TRUSTED LABELS</div>
+                <h3 className="section-main-title">Featured Brands</h3>
+              </div>
+              <div
+                className="view-all-link"
+                onClick={() => {
+                  setAppliedSearch('');
+                  setSearchQuery('');
+                  setActiveCategory(null);
+                  scrollToSection('trending-section');
+                }}
               >
-                <ChevronLeft size={16} />
-                <span>Ask Policy AI</span>
-              </button>
+                <span>Explore all items</span>
+                <ArrowRight size={14} />
+              </div>
+            </div>
+
+            <div className="brands-grid">
+              {(brands.length > 0 ? brands : [
+                { id: 'B02', name: 'Apple', productCount: 15 },
+                { id: 'B01', name: 'Samsung', productCount: 31 },
+                { id: 'B06', name: 'Sony', productCount: 14 },
+                { id: 'B08', name: 'Nike', productCount: 15 },
+                { id: 'B30', name: 'Puma', productCount: 8 },
+                { id: 'B33', name: 'Tata', productCount: 15 },
+                { id: 'B13', name: 'boAt', productCount: 10 },
+                { id: 'B05', name: 'LG', productCount: 25 },
+                { id: 'B12', name: 'Philips', productCount: 8 },
+                { id: 'B10', name: 'OnePlus', productCount: 7 },
+              ]).map((b) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  className="brand-card-item"
+                  onClick={() => {
+                    setSearchQuery(b.name);
+                    runSearch(b.name);
+                    say(`Filtered catalog for: ${b.name}`);
+                    scrollToSection('trending-section');
+                  }}
+                >
+                  <span className="brand-card-name">{b.name}</span>
+                  <span className="brand-card-sub">{b.productCount ? `${b.productCount} Products` : 'In Stock'}</span>
+                </button>
+              ))}
             </div>
           </section>
 
           {/* 5. Trending Products & Bestsellers */}
-          <section className="trending-section">
+          <section className="trending-section" id="trending-section" style={{ scrollMarginTop: '80px' }}>
             <div className="section-header-row">
               <div>
                 <h3 className="section-main-title">
@@ -1023,6 +1099,21 @@ export default function CustomerStorefront({ onTriggerToast }) {
           </div>
         </main>
       </div>
+
+      {/* --------------------------------------------------------------------
+          FLOATING ASK POLICY AI BUTTON (FIXED IN BOTTOM-RIGHT CORNER)
+          -------------------------------------------------------------------- */}
+      {!isAiModalOpen && (
+        <button
+          type="button"
+          className="floating-ask-policy-btn"
+          onClick={() => setIsAiModalOpen(true)}
+          aria-label="Ask Policy AI"
+        >
+          <Sparkles size={16} />
+          <span>Ask Policy AI</span>
+        </button>
+      )}
 
       {/* --------------------------------------------------------------------
           SLIDE-OVER CART DRAWER
