@@ -1,4 +1,6 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { query, queryOne } from '../../db/pool.js';
+import env from '../../config/env.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword, comparePassword } from '../../utils/password.js';
 import { signToken } from '../../utils/jwt.js';
@@ -28,6 +30,22 @@ export function toPublicUser(row) {
     lastLoginAt: row.last_login_at,
     createdAt: row.created_at,
   };
+}
+
+const hashRefreshToken = (token) => createHash('sha256').update(token).digest('hex');
+
+/**
+ * Access JWT + a fresh opaque refresh token. Only the hash of the refresh
+ * token is stored, so a leaked database cannot be replayed as sessions.
+ */
+async function issueSession(row) {
+  const refreshToken = randomBytes(48).toString('base64url');
+  await query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+     VALUES ($1, $2, now() + make_interval(days => $3::int))`,
+    [row.id, hashRefreshToken(refreshToken), env.jwtRefreshExpiresDays]
+  );
+  return { user: toPublicUser(row), token: signToken(row), refreshToken };
 }
 
 async function insertUser(input, role) {
@@ -60,10 +78,13 @@ async function insertUser(input, role) {
   return row;
 }
 
-/** Public self-signup - always creates a CUSTOMER, never staff. */
+/**
+ * Public self-signup - always a CUSTOMER on the STANDARD tier. The tier drives
+ * delivery perks and policy answers, so it is never taken from a signup form.
+ */
 export async function register(input) {
-  const row = await insertUser(input, 'CUSTOMER');
-  return { user: toPublicUser(row), token: signToken(row) };
+  const row = await insertUser({ ...input, membershipTier: 'STANDARD' }, 'CUSTOMER');
+  return issueSession(row);
 }
 
 /** ADMIN-only staff creation. */
@@ -90,7 +111,65 @@ export async function login({ email, password }) {
 
   await query('UPDATE users SET last_login_at = now() WHERE id = $1', [row.id]);
 
-  return { user: toPublicUser(row), token: signToken(row) };
+  return issueSession(row);
+}
+
+/**
+ * Exchange a refresh token for a new access token. The refresh token is
+ * rotated: the presented one is revoked and a new one is returned, so each
+ * token works exactly once.
+ */
+export async function refresh({ refreshToken }) {
+  // Revoking in the same statement makes rotation atomic under concurrent calls.
+  const stored = await queryOne(
+    `UPDATE refresh_tokens SET revoked_at = now()
+      WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+      RETURNING user_id`,
+    [hashRefreshToken(refreshToken)]
+  );
+  if (!stored) {
+    throw ApiError.unauthorized('Refresh token is invalid or expired, please log in again');
+  }
+
+  // Re-read the user so a changed role/tier/store lands in the new access token.
+  const row = await queryOne(`SELECT ${PUBLIC_COLUMNS} FROM users WHERE id = $1`, [
+    stored.user_id,
+  ]);
+  if (!row || !row.is_active) throw ApiError.unauthorized('This account is no longer active');
+
+  return issueSession(row);
+}
+
+/**
+ * Login-free ADMIN session for a locked admin PC. Refused unless the request
+ * comes from a trusted address, and refused for a browser that is signed in
+ * as a non-admin - a customer or manager can never turn into an admin here.
+ */
+export async function adminDeviceSession({ ip, currentUser }) {
+  if (currentUser && currentUser.role !== 'ADMIN') {
+    throw ApiError.forbidden('The admin portal is not available to this account');
+  }
+  // "::ffff:127.0.0.1" is the IPv4 loopback seen through an IPv6 socket.
+  const address = String(ip ?? '').replace(/^::ffff:/, '');
+  if (!env.adminTrustedIps.includes(address)) {
+    throw ApiError.forbidden('The admin portal can only be opened from an authorised admin PC');
+  }
+
+  const row = await queryOne(
+    `SELECT ${PUBLIC_COLUMNS} FROM users WHERE email = $1 AND role = 'ADMIN' AND is_active`,
+    [env.adminDeviceEmail]
+  );
+  if (!row) throw ApiError.internal('ADMIN_DEVICE_EMAIL does not match an active ADMIN account');
+
+  return issueSession(row);
+}
+
+/** Revoke one refresh token. Idempotent - an unknown token is not an error. */
+export async function logout({ refreshToken }) {
+  await query(
+    'UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL',
+    [hashRefreshToken(refreshToken)]
+  );
 }
 
 export async function getById(id) {

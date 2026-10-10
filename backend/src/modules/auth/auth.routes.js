@@ -2,10 +2,16 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import asyncHandler from '../../utils/asyncHandler.js';
 import validate from '../../middleware/validate.js';
-import { requireAuth, requireRole } from '../../middleware/auth.js';
-import { ok, created } from '../../utils/response.js';
+import { requireAuth, optionalAuth, requireRole } from '../../middleware/auth.js';
+import { ok, created, noContent } from '../../utils/response.js';
 import * as authService from './auth.service.js';
-import { registerBody, loginBody, createStaffBody, updateMeBody } from './auth.schema.js';
+import {
+  registerBody,
+  loginBody,
+  refreshBody,
+  createStaffBody,
+  updateMeBody,
+} from './auth.schema.js';
 
 const router = Router();
 
@@ -29,7 +35,7 @@ router.post(
   })
 );
 
-/** POST /auth/login -> { user, token } */
+/** POST /auth/login -> { user, token, refreshToken } */
 router.post(
   '/login',
   authLimiter,
@@ -37,6 +43,45 @@ router.post(
   asyncHandler(async (req, res) => {
     const result = await authService.login(req.body);
     return ok(res, result);
+  })
+);
+
+/** POST /auth/refresh -> { user, token, refreshToken } (the old refresh token stops working). */
+router.post(
+  '/refresh',
+  authLimiter,
+  validate({ body: refreshBody }),
+  asyncHandler(async (req, res) => {
+    const result = await authService.refresh(req.body);
+    return ok(res, result);
+  })
+);
+
+/**
+ * POST /auth/admin-device -> { user, token, refreshToken } for a locked admin PC.
+ * No credentials: the caller is identified by network address (ADMIN_TRUSTED_IPS).
+ * The socket address is used, not req.ip, so an X-Forwarded-For header cannot fake it.
+ */
+router.post(
+  '/admin-device',
+  authLimiter,
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const result = await authService.adminDeviceSession({
+      ip: req.socket.remoteAddress,
+      currentUser: req.user,
+    });
+    return ok(res, result);
+  })
+);
+
+/** POST /auth/logout - revokes the refresh token. */
+router.post(
+  '/logout',
+  validate({ body: refreshBody }),
+  asyncHandler(async (req, res) => {
+    await authService.logout(req.body);
+    return noContent(res);
   })
 );
 

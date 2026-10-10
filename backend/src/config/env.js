@@ -26,8 +26,17 @@ const env = {
   pgSsl: String(process.env.PGSSL ?? 'false') === 'true',
 
   jwtSecret: required('JWT_SECRET', 'dev-only-change-me-7f3a9c1e5b2d4086'),
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '15m',
+  jwtRefreshExpiresDays: Number(process.env.JWT_REFRESH_EXPIRES_DAYS ?? 7),
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS ?? 10),
+
+  // Admin PCs are physically locked, so they get an ADMIN session without a login.
+  // Only requests whose socket address is on this list qualify.
+  adminTrustedIps: (process.env.ADMIN_TRUSTED_IPS ?? '127.0.0.1,::1')
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter(Boolean),
+  adminDeviceEmail: (process.env.ADMIN_DEVICE_EMAIL ?? 'admin@novamart.com').toLowerCase(),
 
   seedDefaultPassword: process.env.SEED_DEFAULT_PASSWORD ?? 'Passw0rd!',
 

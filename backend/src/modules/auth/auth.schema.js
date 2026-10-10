@@ -30,6 +30,10 @@ export const loginBody = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const refreshBody = z.object({
+  refreshToken: z.string().min(20).max(512),
+});
+
 /** ADMIN-only: create STORE_MANAGER / ADMIN accounts. */
 export const createStaffBody = registerBody.extend({
   role: z.enum(USER_ROLES),

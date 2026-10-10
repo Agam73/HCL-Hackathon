@@ -34,7 +34,8 @@ services:
       API_PREFIX: /api/v1
       DATABASE_URL: postgresql://retailpulse:retailpulse@db:5432/retailpulse
       JWT_SECRET: dev-only-change-me-7f3a9c1e5b2d4086
-      JWT_EXPIRES_IN: 12h
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_DAYS: 7
       CORS_ORIGINS: http://localhost:5173,http://localhost:3000
       SEED_DEFAULT_PASSWORD: Passw0rd!
     ports:

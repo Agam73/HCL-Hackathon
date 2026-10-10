@@ -23,7 +23,8 @@ export function createApp() {
         if (!origin || env.corsOrigins.includes(origin) || env.corsOrigins.includes('*')) {
           return callback(null, true);
         }
-        return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+        // Not on the allow-list: answer without CORS headers and let the browser block it.
+        return callback(null, false);
       },
       credentials: true,
     })
@@ -37,7 +38,7 @@ export function createApp() {
 
   /** Liveness + DB reachability. Used by docker-compose and the demo checklist. */
   app.get('/health', async (req, res) => {
-    let db = false;
+    let db;
     try {
       db = await healthCheck();
     } catch {

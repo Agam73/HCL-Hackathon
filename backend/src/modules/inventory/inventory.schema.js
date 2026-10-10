@@ -14,6 +14,7 @@ export const storeInventoryQuery = z.object({
     .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
     .transform((v) => v === true || v === 'true' || v === '1')
     .optional(),
+  status: z.enum(['IN_STOCK', 'LOW_STOCK', 'OUT_OF_STOCK']).optional(),
   sort: z.enum(['quantity_asc', 'quantity_desc', 'name_asc', 'shortfall_desc']).optional(),
 });
 

@@ -4,11 +4,15 @@
  * UPSERT, so running it twice is safe and running it after editing a CSV
  * just updates the rows.
  *
+ * products.csv / inventory.csv are hand-written; products_generated.csv /
+ * inventory_generated.csv come from `npm run db:generate` and are loaded too.
+ *
  *   npm run db:seed
  *
  * Users: the CSV "password" column may be blank, in which case
  * SEED_DEFAULT_PASSWORD from .env is used (default "Passw0rd!").
  */
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +27,12 @@ const seedDir = path.join(here, '..', 'db', 'seed');
 async function readCsv(file) {
   const text = await readFile(path.join(seedDir, file), 'utf8');
   return parse(text, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+}
+
+/** Rows of several CSVs concatenated; files that do not exist are skipped. */
+async function readCsvs(...files) {
+  const present = files.filter((file) => existsSync(path.join(seedDir, file)));
+  return (await Promise.all(present.map(readCsv))).flat();
 }
 
 const nullIfBlank = (v) => (v === undefined || v === '' ? null : v);
@@ -59,7 +69,7 @@ async function seedCategories(client) {
 }
 
 async function seedProducts(client) {
-  const rows = await readCsv('products.csv');
+  const rows = await readCsvs('products.csv', 'products_generated.csv');
   for (const r of rows) {
     const images = r.images ? r.images.split('|').filter(Boolean) : [];
     await client.query(
@@ -112,7 +122,7 @@ async function seedStores(client) {
 }
 
 async function seedInventory(client) {
-  const rows = await readCsv('inventory.csv');
+  const rows = await readCsvs('inventory.csv', 'inventory_generated.csv');
   for (const r of rows) {
     await client.query(
       `INSERT INTO inventory

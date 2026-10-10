@@ -1,12 +1,12 @@
 # RetailPulse AI — backend skeleton
 
 Node + Express + PostgreSQL/PgVector base for the NovaMart hackathon use case.
-Module 1's catalog/store/inventory layer and the auth layer are **done and tested**;
-the schema and folder structure for Modules 2 and 3 are in place so the rest of the
-team can build in parallel without touching each other's files.
+Module 1's catalog/store/inventory layer, auth (with refresh tokens), the cart and orders are
+**done and tested**; the schema and folder structure for Modules 2 and 3 are in place so
+the rest of the team can build in parallel without touching each other's files.
 
 ```
-Status: 42/42 smoke tests passing against a seeded database.
+Status: lint clean, 64 Jest tests and 42 smoke checks passing against a seeded database.
 ```
 
 ---
@@ -22,13 +22,19 @@ npm run db:seed                 # loads the CSVs in db/seed/
 npm run dev                     # http://localhost:8080
 ```
 
-Verify everything in one shot (server must be running):
+Verify:
 
 ```bash
-npm run smoke
+npm run lint        # ESLint
+npm test            # Jest: unit + integration (needs the migrated, seeded DB; no server needed)
+npm run smoke       # 42 HTTP checks against a running server
 ```
 
+CI (`.github/workflows/ci.yml`) runs lint, migrate, seed and `npm test` on every pull request.
+
 Other scripts: `npm run db:reset` (drop + migrate + seed),
+`npm run db:generate` (rebuild the generated part of the seed catalogue),
+`npm run format` (Prettier),
 `docker compose --profile app up -d` (API in Docker too),
 `docker compose --profile tools up -d adminer` (DB UI on :8081).
 
@@ -54,25 +60,39 @@ Base path: `/api/v1`. `GET /api/v1/` lists every route at runtime.
 ### Auth
 | Method | Path | Access |
 |---|---|---|
-| POST | `/auth/register` | public — always creates a CUSTOMER |
-| POST | `/auth/login` | public — returns `{ user, token }` |
+| POST | `/auth/register` | public — always creates a CUSTOMER on the STANDARD tier |
+| POST | `/auth/login` | public — returns `{ user, token, refreshToken }` |
+| POST | `/auth/refresh` | public — body `{ refreshToken }`, returns a new pair; the old refresh token stops working |
+| POST | `/auth/logout` | public — body `{ refreshToken }`, revokes it |
 | GET | `/auth/me` | any logged-in user |
 | PATCH | `/auth/me` | any logged-in user — preferences are **merged**, not replaced |
 | POST | `/auth/staff` | ADMIN — creates STORE_MANAGER / ADMIN |
+| POST | `/auth/admin-device` | no credentials — returns an ADMIN session, but only to addresses in `ADMIN_TRUSTED_IPS` (admin PCs are locked, so the admin portal has no login); `403` for anyone else and for a signed-in customer or manager |
+
+The access token lives 15 minutes (`JWT_EXPIRES_IN`), the refresh token 7 days
+(`JWT_REFRESH_EXPIRES_DAYS`). Refresh tokens are single-use and stored only as a SHA-256 hash.
 
 ### Catalog
 | Method | Path |
 |---|---|
 | GET | `/products` — `q`, `categoryId`, `categorySlug`, `brandId`, `minPrice`, `maxPrice`, `minRating`, `storeId`, `inStockOnly`, `sort`, `page`, `size` |
 | GET | `/products/:productId` — detail + availability by store + related products |
-| GET | `/products/:productId/availability` — `city`, `country`, `inStockOnly` |
+| GET | `/products/:productId/availability` — `city`, `country`, `inStockOnly`, `nearStoreId` |
 | GET | `/categories` — `?tree=true` for a nested tree |
 | GET | `/brands` |
+| POST | `/products` — ADMIN creates a product |
+| PATCH | `/products/:productId` — ADMIN edits it |
+| DELETE | `/products/:productId` — ADMIN retires it (`isActive: false`, not erased) |
 
 `sort` is one of `relevance`, `price_asc`, `price_desc`, `rating_desc`, `name_asc`, `newest`.
 Search combines Postgres full-text (`tsvector`, GIN) with trigram fuzzy matching, so
 `?q=laptop for java development` returns the dev laptops. Filtering by a parent category
 (`electronics`) includes all sub-categories via a recursive CTE.
+
+With `storeId`, each product carries `storeStock` for that store
+(`IN_STOCK` / `LOW_STOCK` / `OUT_OF_STOCK`). With `nearStoreId`, the availability list adds
+`distanceKm` from that store and is ordered nearest-first — the fallback to offer when the
+customer's own store is out of stock.
 
 ### Stores & inventory
 | Method | Path | Access |
@@ -80,7 +100,10 @@ Search combines Postgres full-text (`tsvector`, GIN) with trigram fuzzy matching
 | GET | `/stores` — `city`, `country`, `type`, `q`, `hasProductId` | public |
 | GET | `/stores/cities` | public — drives the store picker |
 | GET | `/stores/:storeId` | public |
-| GET | `/stores/:storeId/inventory` — `q`, `categoryId`, `brandId`, `lowStockOnly`, `inStockOnly`, `sort` | public |
+| POST | `/stores` | ADMIN — open a store or warehouse |
+| PATCH | `/stores/:storeId` | ADMIN — edit it |
+| DELETE | `/stores/:storeId` | ADMIN — close it (`isActive: false`, not erased) |
+| GET | `/stores/:storeId/inventory` — `q`, `categoryId`, `brandId`, `status`, `lowStockOnly`, `inStockOnly`, `sort` | public |
 | GET | `/stores/:storeId/inventory/:productId` | public |
 | PATCH | `/stores/:storeId/inventory/:productId` | STORE_MANAGER (own store only) or ADMIN |
 | GET | `/stores/:storeId/inventory/low-stock` | STORE_MANAGER (own store) or ADMIN |
@@ -90,6 +113,65 @@ Search combines Postgres full-text (`tsvector`, GIN) with trigram fuzzy matching
 optional `reorderLevel` and `reason`. It runs in a transaction with `SELECT … FOR UPDATE`,
 refuses to go negative, and writes a row to `agent_actions` so every stock movement is
 traceable.
+
+### Cart
+All cart routes need a login; the cart is always the token owner's (one per user, stored in
+the database, so it survives sessions and devices).
+
+| Method | Path | |
+|---|---|---|
+| GET | `/cart` | items, totals, membership perks, stock issues |
+| POST | `/cart/items` | `{ productId, quantity? }` — adds, or increments if already there |
+| PATCH | `/cart/items/:productId` | `{ quantity }` (1–10) |
+| DELETE | `/cart/items/:productId` | remove one line |
+| DELETE | `/cart` | empty the cart |
+
+Every call returns the whole cart. Lines are priced at today's catalogue price
+(`priceChanged` flags a change since the item was added) and stock is checked at the
+customer's preferred store. `summary.delivery` and `membership` apply the tier rules from
+`db/seed/knowledge-base` (free standard delivery above ₹499, always free for Gold/Platinum;
+express ₹149, free for Gold/Platinum and for Silver above ₹2,499; 1/2/3/5 reward points per
+₹100). The tier is read from the `users` table, never from the request. The rules live in
+`src/modules/cart/cart.pricing.js`.
+
+Customer preferences (categories, brands, budget, city, preferred store) are saved through
+`PATCH /auth/me`.
+
+### Orders
+All order routes need a login.
+
+| Method | Path | Access |
+|---|---|---|
+| POST | `/orders` | any logged-in user — checks out their cart |
+| GET | `/orders` — `status`, `page`, `size` | own order history |
+| GET | `/orders/:orderRef` | owner, the manager of the order's store, or ADMIN (`404` for anyone else) |
+| POST | `/orders/:orderRef/cancel` | owner, while the order is `CONFIRMED` or `PACKED` |
+| PATCH | `/orders/:orderRef/status` | STORE_MANAGER (own store) or ADMIN |
+| GET | `/stores/:storeId/orders` — `status`, `page`, `size` | STORE_MANAGER (own store) or ADMIN |
+
+`:orderRef` is the order id or its order number (`NM-20261010-A1B2C3`).
+
+`POST /orders` takes `{ fulfillment, storeId?, deliverySpeed?, shippingAddress?,
+paymentMethod?, simulatePaymentFailure? }`:
+
+- `IN_STORE_PICKUP` collects from `storeId` (default: the customer's preferred store); free.
+- `HOME_DELIVERY` needs `shippingAddress` and ships from the customer's store if it can cover
+  the whole order, otherwise a warehouse, otherwise another store. `deliverySpeed` is
+  `STANDARD` or `EXPRESS`; the fee follows the same tier rules as the cart.
+- Payment is simulated: `SIMULATED_PAID`, or `PAY_ON_DELIVERY` for `CASH_ON_DELIVERY`.
+  `simulatePaymentFailure: true` returns `402 PAYMENT_FAILED` and changes nothing.
+
+Checkout is one transaction: inventory rows are locked, re-checked and decremented, the order
+is written and the cart emptied. Short stock is a `409` listing each line's shortfall, and the
+cart is kept. Cancelling puts the stock back and marks a paid order `SIMULATED_REFUNDED`.
+
+Status flow (anything else is a `409`):
+
+```
+pickup:    CONFIRMED -> PACKED -> READY_FOR_PICKUP -> DELIVERED
+delivery:  CONFIRMED -> PACKED -> SHIPPED -> DELIVERED
+CANCELLED is allowed from any step before SHIPPED / DELIVERED
+```
 
 ### Response shapes
 
@@ -132,10 +214,13 @@ driver errors are translated — a unique violation becomes a 409, a missing tab
 │   │   ├── 001_init.sql        all tables, enums, indexes, triggers
 │   │   └── 002_views.sql       v_product_catalog, v_product_availability, v_low_stock
 │   └── seed/                   brands, categories, products, stores, inventory, customers
+│                               (+ products_generated.csv / inventory_generated.csv)
 ├── scripts/
 │   ├── migrate.js              runs pending migrations, tracked in schema_migrations
 │   ├── seed.js                 idempotent CSV loader (UPSERTs)
+│   ├── generate-seed.js        builds the generated catalogue (deterministic)
 │   └── smoke.js                42 end-to-end checks
+├── tests/                      Jest: unit/ (pure logic) and integration/ (supertest + DB)
 └── src/
     ├── server.js               listen + graceful shutdown
     ├── app.js                  middleware stack, /health
@@ -152,7 +237,9 @@ driver errors are translated — a unique violation becomes a 409, a missing tab
         ├── auth/               .routes .controller-free .service .schema
         ├── catalog/
         ├── stores/
-        └── inventory/
+        ├── inventory/
+        ├── cart/               + cart.pricing.js (pure tier/delivery rules)
+        └── orders/
 ```
 
 ### Adding a module (the pattern)
@@ -198,7 +285,6 @@ This is the table that answers "why did the agent do that?" and the one that mak
 
 | Owner | Scope | Where |
 |---|---|---|
-| | Cart + checkout + orders | new `src/modules/cart`, `src/modules/orders` (tables exist) |
 | | AI recommendations returning `{ interpretedRequirement, recommendations[], clarifyingQuestion }` | new `src/modules/assistant` |
 | | Module 2: ingest PDF/MD/TXT/CSV/JSON → chunk → embed → `kb_chunks`; retrieval + grounded answer with `{ answer, confidence, sources[], followUpRequired }` | new `src/modules/kb` |
 | | Module 3: inventory / promotion / order / support agents, writing to `agent_actions` | new `src/modules/agents` |
@@ -227,6 +313,8 @@ or changes.
   rounds), rate limit on auth routes, identical message for unknown-email and wrong-password,
   stack traces never returned in production, and `password_hash` never selected into a
   response DTO.
-- Seed data is deliberately uneven — ~8% of store/product rows are out of stock and ~14%
-  are below reorder level, so the low-stock feed and the "out of stock after ordering"
-  demo both have real data (73 low-stock rows across 10 stores).
+- Seed data: 328 products (37 hand-written + 291 generated variants), 34 brands, 16
+  categories, 8 stores + 2 warehouses, 12 users across all 4 tiers. Stock is deliberately
+  uneven — ~8% of store/product rows are out of stock and ~14% are at or below reorder
+  level, so the low-stock feed, the nearby-store fallback and the "out of stock after
+  ordering" demo all have real data.

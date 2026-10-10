@@ -50,6 +50,11 @@ export async function listStoreInventory(storeId, filters) {
   if (filters.brandId?.length) where.push(`p.brand_id = ANY(${bind(filters.brandId)}::text[])`);
   if (filters.lowStockOnly) where.push('i.quantity_available <= i.reorder_level');
   if (filters.inStockOnly) where.push('i.quantity_available > 0');
+  if (filters.status === 'OUT_OF_STOCK') where.push('i.quantity_available <= 0');
+  if (filters.status === 'LOW_STOCK') {
+    where.push('i.quantity_available > 0 AND i.quantity_available <= i.reorder_level');
+  }
+  if (filters.status === 'IN_STOCK') where.push('i.quantity_available > i.reorder_level');
 
   const orderBy = {
     quantity_asc: 'i.quantity_available ASC',

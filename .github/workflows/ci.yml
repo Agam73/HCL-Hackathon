@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend - lint and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      # Same image as backend/docker-compose.yml so pgvector is available.
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: retailpulse
+          POSTGRES_PASSWORD: retailpulse
+          POSTGRES_DB: retailpulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U retailpulse -d retailpulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://retailpulse:retailpulse@localhost:5432/retailpulse
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else
+      SEED_DEFAULT_PASSWORD: Passw0rd!
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      - run: npm test

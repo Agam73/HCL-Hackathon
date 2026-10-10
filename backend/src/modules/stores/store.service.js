@@ -102,6 +102,63 @@ export async function listStoreCities() {
   return rows.map((r) => ({ city: r.city, country: r.country, storeCount: Number(r.store_count) }));
 }
 
+// ---------------------------------------------------------------------
+// ADMIN: create / update / close stores
+// ---------------------------------------------------------------------
+const STORE_COLUMNS = {
+  name: 'name',
+  type: 'type',
+  addressLine: 'address_line',
+  city: 'city',
+  state: 'state',
+  country: 'country',
+  postalCode: 'postal_code',
+  latitude: 'latitude',
+  longitude: 'longitude',
+  phone: 'phone',
+  opensAt: 'opens_at',
+  closesAt: 'closes_at',
+  isActive: 'is_active',
+};
+const STORE_CASTS = { type: '::store_type', opensAt: '::time', closesAt: '::time' };
+
+export async function createStore(input) {
+  if (await queryOne('SELECT 1 FROM stores WHERE id = $1', [input.id])) {
+    throw ApiError.conflict(`A store with id ${input.id} already exists`);
+  }
+  const fields = Object.keys(STORE_COLUMNS).filter((f) => input[f] !== undefined);
+  const params = [input.id, ...fields.map((f) => input[f])];
+  await query(
+    `INSERT INTO stores (id, ${fields.map((f) => STORE_COLUMNS[f]).join(', ')})
+     VALUES ($1, ${fields.map((f, i) => `$${i + 2}${STORE_CASTS[f] ?? ''}`).join(', ')})`,
+    params
+  );
+  return getStore(input.id);
+}
+
+export async function updateStore(storeId, patch) {
+  const fields = Object.keys(STORE_COLUMNS).filter((f) => patch[f] !== undefined);
+  const params = [...fields.map((f) => patch[f]), storeId];
+  const { rowCount } = await query(
+    `UPDATE stores
+        SET ${fields.map((f, i) => `${STORE_COLUMNS[f]} = $${i + 1}${STORE_CASTS[f] ?? ''}`).join(', ')}
+      WHERE id = $${params.length}`,
+    params
+  );
+  if (rowCount === 0) throw ApiError.notFound(`Store ${storeId}`);
+  return getStore(storeId);
+}
+
+/**
+ * Stores are closed, not deleted: orders, inventory and managers still refer
+ * to them. A closed store drops out of the store picker and default lists.
+ */
+export async function deactivateStore(storeId) {
+  const { rowCount } = await query('UPDATE stores SET is_active = FALSE WHERE id = $1', [storeId]);
+  if (rowCount === 0) throw ApiError.notFound(`Store ${storeId}`);
+  return getStore(storeId);
+}
+
 export async function assertStoreExists(storeId) {
   const row = await queryOne('SELECT id FROM stores WHERE id = $1', [storeId]);
   if (!row) throw ApiError.notFound(`Store ${storeId}`);

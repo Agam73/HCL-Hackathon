@@ -1,6 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import { query, queryOne } from '../../db/pool.js';
 import ApiError from '../../utils/ApiError.js';
 import { toOffset } from '../../utils/schemas.js';
+import { distanceKm } from '../../utils/geo.js';
 
 /** DB row -> API product object. */
 function toProduct(row) {
@@ -39,7 +41,12 @@ function toProduct(row) {
     product.storeStock = {
       storeId: row.scoped_store_id,
       quantityAvailable: row.store_quantity,
-      availability: row.store_quantity > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
+      availability:
+        row.store_quantity <= 0
+          ? 'OUT_OF_STOCK'
+          : row.store_quantity <= (row.store_reorder_level ?? 0)
+            ? 'LOW_STOCK'
+            : 'IN_STOCK',
     };
   }
   return product;
@@ -59,7 +66,7 @@ const SELECT_COLUMNS = `
  */
 export async function listProducts(filters) {
   const params = [];
-  const where = ['vc.is_active = TRUE'];
+  const where = filters.includeInactive ? ['TRUE'] : ['vc.is_active = TRUE'];
   const bind = (value) => {
     params.push(value);
     return `$${params.length}`;
@@ -108,7 +115,9 @@ export async function listProducts(filters) {
     storeSelect = `,
       ${storeId} AS scoped_store_id,
       (SELECT i.quantity_available FROM inventory i
-        WHERE i.product_id = vc.id AND i.store_id = ${storeId}) AS store_quantity`;
+        WHERE i.product_id = vc.id AND i.store_id = ${storeId}) AS store_quantity,
+      (SELECT i.reorder_level FROM inventory i
+        WHERE i.product_id = vc.id AND i.store_id = ${storeId}) AS store_reorder_level`;
     if (filters.inStockOnly) {
       where.push(`EXISTS (
         SELECT 1 FROM inventory i
@@ -152,7 +161,9 @@ export async function listProducts(filters) {
 /** Product detail: product + per-store availability + related products. */
 export async function getProductDetail(productId) {
   const row = await queryOne(
-    `SELECT ${SELECT_COLUMNS} FROM v_product_catalog vc WHERE vc.id = $1`,
+    `SELECT ${SELECT_COLUMNS}, p.keywords
+       FROM v_product_catalog vc JOIN products p ON p.id = vc.id
+      WHERE vc.id = $1`,
     [productId]
   );
   if (!row) throw ApiError.notFound(`Product ${productId}`);
@@ -178,6 +189,7 @@ export async function getProductDetail(productId) {
 
   return {
     ...toProduct(row),
+    keywords: row.keywords,
     availabilityByStore: availability.rows.map((a) => ({
       storeId: a.store_id,
       storeName: a.store_name,
@@ -191,10 +203,26 @@ export async function getProductDetail(productId) {
   };
 }
 
-/** Availability of one product across stores, optionally filtered by city/country. */
-export async function getProductAvailability(productId, { city, country, inStockOnly }) {
+/**
+ * Availability of one product across stores, optionally filtered by city/country.
+ * With nearStoreId, every row carries distanceKm from that store and the list is
+ * ordered nearest-first - this is the "nearby store" fallback when the
+ * customer's own store is out of stock.
+ */
+export async function getProductAvailability(
+  productId,
+  { city, country, inStockOnly, nearStoreId }
+) {
   const exists = await queryOne('SELECT 1 FROM products WHERE id = $1', [productId]);
   if (!exists) throw ApiError.notFound(`Product ${productId}`);
+
+  let origin = null;
+  if (nearStoreId) {
+    origin = await queryOne('SELECT id, latitude, longitude FROM stores WHERE id = $1', [
+      nearStoreId,
+    ]);
+    if (!origin) throw ApiError.notFound(`Store ${nearStoreId}`);
+  }
 
   const params = [productId];
   const where = ['a.product_id = $1'];
@@ -209,7 +237,7 @@ export async function getProductAvailability(productId, { city, country, inStock
   if (inStockOnly) where.push('a.quantity_available > 0');
 
   const { rows } = await query(
-    `SELECT a.*, s.country
+    `SELECT a.*, s.country, s.latitude, s.longitude
        FROM v_product_availability a
        JOIN stores s ON s.id = a.store_id
       WHERE ${where.join(' AND ')}
@@ -217,7 +245,7 @@ export async function getProductAvailability(productId, { city, country, inStock
     params
   );
 
-  return rows.map((r) => ({
+  const result = rows.map((r) => ({
     storeId: r.store_id,
     storeName: r.store_name,
     city: r.store_city,
@@ -227,7 +255,122 @@ export async function getProductAvailability(productId, { city, country, inStock
     reorderLevel: r.reorder_level,
     availability: r.availability,
     lastSyncedAt: r.last_synced_at,
+    ...(origin ? { distanceKm: distanceKm(origin, r) } : {}),
   }));
+
+  if (origin) {
+    // Nearest first; stores without coordinates sink to the bottom.
+    result.sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------
+// ADMIN: create / update / retire products
+// ---------------------------------------------------------------------
+const slugify = (text) =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+async function getAdminProduct(productId) {
+  const row = await queryOne(
+    `SELECT ${SELECT_COLUMNS}, p.keywords
+       FROM v_product_catalog vc JOIN products p ON p.id = vc.id
+      WHERE vc.id = $1`,
+    [productId]
+  );
+  if (!row) throw ApiError.notFound(`Product ${productId}`);
+  return { ...toProduct(row), keywords: row.keywords };
+}
+
+export async function createProduct(input) {
+  const id = (input.id ?? `P${randomBytes(4).toString('hex')}`).toUpperCase();
+  if (await queryOne('SELECT 1 FROM products WHERE id = $1', [id])) {
+    throw ApiError.conflict(`A product with id ${id} already exists`);
+  }
+
+  // Unknown category/brand ids surface as a 400 through the FK error mapping.
+  await query(
+    `INSERT INTO products
+       (id, name, slug, description, keywords, category_id, brand_id, price, mrp,
+        specifications, images, warranty_months, is_active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::text[],$12,$13)`,
+    [
+      id,
+      input.name,
+      `${slugify(input.name)}-${id.toLowerCase()}`,
+      input.description ?? null,
+      input.keywords ?? null,
+      input.categoryId,
+      input.brandId,
+      input.price,
+      input.mrp ?? null,
+      JSON.stringify(input.specifications ?? {}),
+      input.images ?? [],
+      input.warrantyMonths ?? null,
+      input.isActive ?? true,
+    ]
+  );
+  return getAdminProduct(id);
+}
+
+const PRODUCT_COLUMNS = {
+  name: 'name',
+  description: 'description',
+  keywords: 'keywords',
+  categoryId: 'category_id',
+  brandId: 'brand_id',
+  price: 'price',
+  mrp: 'mrp',
+  warrantyMonths: 'warranty_months',
+  isActive: 'is_active',
+};
+
+export async function updateProduct(productId, patch) {
+  const current = await queryOne('SELECT price, mrp FROM products WHERE id = $1', [productId]);
+  if (!current) throw ApiError.notFound(`Product ${productId}`);
+
+  // The schema checks mrp >= price when both are sent; this covers changing only one.
+  const price = patch.price ?? current.price;
+  const mrp = patch.mrp === undefined ? current.mrp : patch.mrp;
+  if (mrp != null && mrp < price) {
+    throw ApiError.unprocessable('Request validation failed', [
+      { field: 'mrp', message: `mrp (${mrp}) must be greater than or equal to price (${price})` },
+    ]);
+  }
+
+  const sets = [];
+  const params = [];
+  const push = (sql, value) => {
+    params.push(value);
+    sets.push(sql.replace('?', `$${params.length}`));
+  };
+
+  for (const [field, column] of Object.entries(PRODUCT_COLUMNS)) {
+    if (patch[field] !== undefined) push(`${column} = ?`, patch[field]);
+  }
+  if (patch.specifications !== undefined) {
+    push('specifications = ?::jsonb', JSON.stringify(patch.specifications));
+  }
+  if (patch.images !== undefined) push('images = ?::text[]', patch.images);
+
+  params.push(productId);
+  await query(`UPDATE products SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+  return getAdminProduct(productId);
+}
+
+/**
+ * Products are retired, not deleted: past orders and carts still point at
+ * them. A retired product disappears from the storefront immediately.
+ */
+export async function deactivateProduct(productId) {
+  const { rowCount } = await query('UPDATE products SET is_active = FALSE WHERE id = $1', [
+    productId,
+  ]);
+  if (rowCount === 0) throw ApiError.notFound(`Product ${productId}`);
+  return getAdminProduct(productId);
 }
 
 export async function listBrands() {
