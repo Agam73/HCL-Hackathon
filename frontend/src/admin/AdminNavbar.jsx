@@ -6,7 +6,8 @@ import {
   Store, 
   CheckCircle2, 
   AlertTriangle, 
-  Sparkles,
+  Sparkles, 
+  ShieldCheck,
   X
 } from 'lucide-react';
 
@@ -155,19 +156,14 @@ export default function AdminNavbar({
           )}
         </div>
 
-        {/* User Profile */}
+        {/* Admin Identity Widget (Replaces Sarah Jenkins) */}
         <div className="user-profile-widget">
-          <div className="user-avatar-wrap">
-            <img 
-              src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80" 
-              alt="Sarah Jenkins"
-              className="user-avatar-img"
-            />
-            <span className="user-online-pip"></span>
+          <div className="admin-avatar-pill-icon">
+            <ShieldCheck size={18} />
           </div>
           <div className="user-meta-wrap">
-            <div className="user-name">Sarah Jenkins</div>
-            <div className="user-role">Retail Operations Lead</div>
+            <div className="user-name">Fabulous 5</div>
+            <div className="user-role">HCL Hackathon Admin</div>
           </div>
         </div>
       </div>

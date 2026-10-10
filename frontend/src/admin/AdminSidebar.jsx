@@ -1,16 +1,51 @@
 import React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   BookOpen, 
   Package
 } from 'lucide-react';
+import logoImg from '../assets/logo.png';
 
-export default function AdminSidebar({ activeNav, setActiveNav }) {
+export default function AdminSidebar() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const isKB = location.pathname.includes('/knowledge-base');
+  const isInventory = location.pathname.includes('/inventory');
+  const isDashboard = !isKB && !isInventory;
+
   const mainNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'knowledge-base', label: 'Knowledge Base', icon: BookOpen },
-    { id: 'inventory', label: 'Inventory', icon: Package },
+    { 
+      id: 'dashboard', 
+      label: 'Dashboard', 
+      icon: LayoutDashboard,
+      path: '/admin',
+      active: isDashboard
+    },
+    { 
+      id: 'knowledge-base', 
+      label: 'Knowledge Base', 
+      icon: BookOpen,
+      path: '/admin/knowledge-base',
+      active: isKB
+    },
+    { 
+      id: 'inventory', 
+      label: 'Inventory', 
+      icon: Package,
+      path: '/admin/inventory',
+      active: isInventory
+    },
   ];
+
+  const handleNavClick = (path) => {
+    navigate(path);
+    const scrollArea = document.querySelector('.main-content-scroll');
+    if (scrollArea) {
+      scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   return (
     <aside className="sidebar-container">
@@ -18,15 +53,11 @@ export default function AdminSidebar({ activeNav, setActiveNav }) {
       <div className="sidebar-brand">
         <div className="brand-logo-wrap">
           <div className="brand-logo-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2L3 7L12 12L21 7L12 2Z" fill="#2563EB" />
-              <path d="M3 17L12 22L21 17" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M3 12L12 17L21 12" stroke="#3B82F6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <img src={logoImg} alt="Fabulous 5" className="brand-img-logo" />
           </div>
           <div className="brand-text-wrap">
-            <h1 className="brand-title">NovaMart</h1>
-            <span className="brand-subtitle">AI Retail Ops</span>
+            <h1 className="brand-title">Fabulous 5</h1>
+            <span className="brand-subtitle">HCL Hackathon Admin</span>
           </div>
         </div>
       </div>
@@ -36,21 +67,12 @@ export default function AdminSidebar({ activeNav, setActiveNav }) {
         <ul className="nav-list">
           {mainNavItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeNav === item.id;
             return (
               <li key={item.id} className="nav-item">
                 <button
                   type="button"
-                  className={`nav-button ${isActive ? 'active' : ''}`}
-                  onClick={() => {
-                    if (setActiveNav) {
-                      setActiveNav(item.id);
-                    }
-                    const scrollArea = document.querySelector('.main-content-scroll');
-                    if (scrollArea) {
-                      scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
-                    }
-                  }}
+                  className={`nav-button ${item.active ? 'active' : ''}`}
+                  onClick={() => handleNavClick(item.path)}
                 >
                   <Icon className="nav-icon" size={18} />
                   <span className="nav-label">{item.label}</span>

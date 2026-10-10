@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 
-// Admin portal components
-import AdminSidebar from './admin/AdminSidebar';
-import AdminNavbar from './admin/AdminNavbar';
-import AdminDashboard from './admin/AdminDashboard';
+// Route-based portal components
+import AdminLayout from './admin/AdminLayout';
+import StoreManagerDashboard from './store-manager/StoreManagerDashboard';
+import CustomerStorefront from './customer/CustomerStorefront';
 import ToastContainer from './shared/ToastContainer';
 
 export default function App() {
-  const [activeNav, setActiveNav] = useState('dashboard');
-  const [selectedStore, setSelectedStore] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [toasts, setToasts] = useState([]);
 
   const addToast = (message) => {
@@ -22,32 +20,23 @@ export default function App() {
   };
 
   return (
-    <div className="app-layout">
-      {/* Admin Sidebar */}
-      <AdminSidebar
-        activeNav={activeNav}
-        setActiveNav={setActiveNav}
-      />
+    <BrowserRouter>
+      <Routes>
+        {/* 1. Customer Shopping Page at '/' */}
+        <Route path="/" element={<CustomerStorefront onTriggerToast={addToast} />} />
 
-      {/* Main Admin Viewport */}
-      <div className="main-wrapper">
-        <AdminNavbar
-          selectedStore={selectedStore}
-          setSelectedStore={setSelectedStore}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-        />
+        {/* 2. Store Manager at '/storemanager' */}
+        <Route path="/storemanager" element={<StoreManagerDashboard onTriggerToast={addToast} />} />
 
-        {/* Admin Dashboard Page */}
-        <main className="main-content-scroll">
-          <div className="content-container">
-            <AdminDashboard activeNav={activeNav} onTriggerToast={addToast} />
-          </div>
-        </main>
-      </div>
+        {/* 3. Admin Portal at '/admin' and its dedicated sub-pages */}
+        <Route path="/admin/*" element={<AdminLayout onTriggerToast={addToast} />} />
+
+        {/* Fallback to Customer Storefront */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
 
       {/* Shared Floating Toasts */}
       <ToastContainer toasts={toasts} />
-    </div>
+    </BrowserRouter>
   );
 }

@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   ShoppingBag, 
   Search, 
-  ArrowLeft, 
   Star, 
   Sparkles, 
-  Check, 
   ShoppingCart,
   Plus,
   Send,
-  Bot
+  Bot,
+  ShieldCheck,
+  Store
 } from 'lucide-react';
+import logoImg from '../assets/logo.png';
 
-export default function ShoppingPageView({ onBackToAdmin, onTriggerToast }) {
+export default function CustomerStorefront({ onTriggerToast }) {
+  const navigate = useNavigate();
   const [cart, setCart] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState([
-    { sender: 'bot', text: 'Hello! I am your NovaMart AI shopping assistant. Ask me about product availability, organic alternatives, or bundle discounts!' }
+    { sender: 'bot', text: 'Hello! I am your Fabulous 5 AI shopping assistant. Ask me about product availability, organic alternatives, or bundle discounts!' }
   ]);
 
   const products = [
@@ -85,24 +88,45 @@ export default function ShoppingPageView({ onBackToAdmin, onTriggerToast }) {
   };
 
   return (
-    <div className="storefront-container">
-      {/* Persona Header */}
+    <div className="storefront-container" style={{ padding: '24px 32px', minHeight: '100vh', background: 'var(--bg-app)' }}>
+      {/* Top Header Navbar */}
       <div className="persona-banner">
         <div className="flex-row items-center gap-3">
+          <div className="brand-logo-icon" style={{ width: '36px', height: '36px' }}>
+            <img src={logoImg} alt="Fabulous 5" className="brand-img-logo" />
+          </div>
+          <div>
+            <div className="persona-tag" style={{ fontSize: '15px' }}>Fabulous 5 · Customer Storefront</div>
+            <div style={{ fontSize: '11.5px', color: '#64748B' }}>Real-time Local Retail Shopping</div>
+          </div>
+        </div>
+
+        <div className="flex-row items-center gap-3">
+          <div className="cart-indicator-badge">
+            <ShoppingCart size={16} />
+            <span>Cart: <strong>{cart.length} items</strong> (${cart.reduce((s, c) => s + c.price, 0).toFixed(2)})</span>
+          </div>
+
           <button 
             type="button" 
             className="back-to-admin-btn"
-            onClick={onBackToAdmin}
+            onClick={() => navigate('/admin')}
+            title="Go to Admin Portal"
           >
-            <ArrowLeft size={16} />
-            <span>Return to Admin View</span>
+            <ShieldCheck size={14} />
+            <span>Admin Portal</span>
           </button>
-          <div className="persona-tag">Persona: Customer Shopping Storefront</div>
-        </div>
 
-        <div className="cart-indicator-badge">
-          <ShoppingCart size={16} />
-          <span>Cart: <strong>{cart.length} items</strong> (${cart.reduce((s, c) => s + c.price, 0).toFixed(2)})</span>
+          <button 
+            type="button" 
+            className="back-to-admin-btn"
+            style={{ background: '#F1F5F9', borderColor: '#CBD5E1', color: '#334155' }}
+            onClick={() => navigate('/storemanager')}
+            title="Go to Store Manager Portal"
+          >
+            <Store size={14} />
+            <span>Store Manager</span>
+          </button>
         </div>
       </div>
 
@@ -152,7 +176,7 @@ export default function ShoppingPageView({ onBackToAdmin, onTriggerToast }) {
         <div className="widget-header">
           <div className="flex-row items-center gap-2">
             <Bot size={18} className="text-primary" />
-            <span className="widget-title">NovaMart AI Shopping Copilot</span>
+            <span className="widget-title">Fabulous 5 AI Shopping Copilot</span>
           </div>
           <span className="status-dot-green"></span>
         </div>

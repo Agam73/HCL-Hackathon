@@ -349,15 +349,6 @@ export default function RagSection({ onTriggerToast }) {
           {/* Table Footer */}
           <div className="rag-table-footer">
             <span className="footer-refresh-note">Vectors refreshed every 15 minutes</span>
-            <button 
-              type="button" 
-              className="corpus-manager-link"
-              onClick={() => {
-                if (onTriggerToast) onTriggerToast('Opening Enterprise Vector Index / Corpus Manager...');
-              }}
-            >
-              Open Corpus Manager <ArrowRight size={14} />
-            </button>
           </div>
         </div>
       </div>

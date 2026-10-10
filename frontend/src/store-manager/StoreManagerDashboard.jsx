@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Store, 
   Users, 
@@ -7,12 +8,15 @@ import {
   AlertCircle, 
   Boxes, 
   QrCode, 
-  ArrowLeft,
   Calendar,
-  Sparkles
+  Sparkles,
+  ShieldCheck,
+  ShoppingBag
 } from 'lucide-react';
+import logoImg from '../assets/logo.png';
 
-export default function StoreManagerView({ onBackToAdmin, onTriggerToast }) {
+export default function StoreManagerDashboard({ onTriggerToast }) {
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState([
     { id: 1, title: 'Restock Aisle 4 Organic Cold Brew', urgency: 'High', completed: false, assignedTo: 'Marcus K.' },
     { id: 2, title: 'POS Terminal #3 Firmware Sync & Receipt Paper Refill', urgency: 'Medium', completed: true, assignedTo: 'Elena V.' },
@@ -34,23 +38,39 @@ export default function StoreManagerView({ onBackToAdmin, onTriggerToast }) {
   };
 
   return (
-    <div className="store-manager-container">
-      {/* Header Banner */}
+    <div className="store-manager-container" style={{ padding: '24px 32px', minHeight: '100vh', background: 'var(--bg-app)' }}>
+      {/* Top Header Banner */}
       <div className="persona-banner">
         <div className="flex-row items-center gap-3">
+          <div className="brand-logo-icon" style={{ width: '36px', height: '36px' }}>
+            <img src={logoImg} alt="Fabulous 5" className="brand-img-logo" />
+          </div>
+          <div>
+            <div className="persona-tag" style={{ fontSize: '15px' }}>Fabulous 5 · Store Manager Portal</div>
+            <div style={{ fontSize: '11.5px', color: '#64748B' }}>Store #104 (Austin Flagship) · Live Floor Operations</div>
+          </div>
+        </div>
+
+        <div className="flex-row items-center gap-2">
           <button 
             type="button" 
             className="back-to-admin-btn"
-            onClick={onBackToAdmin}
+            onClick={() => navigate('/admin')}
+            title="Go to Admin Portal"
           >
-            <ArrowLeft size={16} />
-            <span>Return to Admin View</span>
+            <ShieldCheck size={15} />
+            <span>Go to Admin (/admin)</span>
           </button>
-          <div className="persona-tag">Persona: Store Floor Manager</div>
-        </div>
-        <div className="store-location-badge">
-          <Store size={15} />
-          <span>Store #104 (Austin Flagship)</span>
+          <button 
+            type="button" 
+            className="back-to-admin-btn"
+            style={{ background: '#F1F5F9', borderColor: '#CBD5E1', color: '#334155' }}
+            onClick={() => navigate('/')}
+            title="Go to Customer Storefront"
+          >
+            <ShoppingBag size={15} />
+            <span>Storefront (/)</span>
+          </button>
         </div>
       </div>
 
